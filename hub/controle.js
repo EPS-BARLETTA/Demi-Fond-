@@ -73,10 +73,12 @@
     return { date: co.meta.date, key: minuteKey(co.meta.date), title: co.meta.title, group: co.meta.group, source: "cet iPad",
       arrivals: co.arrivals.map(function (a) { var r = (co.runners || []).find(function (x) { return x.id === a.runnerId; }); return { name: r ? r.name : a.freeName, t: a.t, pid: a.pid }; }) };
   });
-  var imported = [], courses = [], video = {}, unknown = [];
+  var imported = [], courses = [], allCourses = [], video = {}, unknown = [];
   function buildVideo() {
     var keys = {}; localCourses.forEach(function (co) { keys[co.key] = 1; });
-    courses = localCourses.concat(imported.filter(function (co) { return !keys[co.key]; })).sort(function (x, y) { return x.date - y.date; });
+    allCourses = localCourses.concat(imported.filter(function (co) { return !keys[co.key]; })).sort(function (x, y) { return x.date - y.date; });
+    var off = s.pfOff || {};
+    courses = allCourses.filter(function (co) { return !off[co.key + "|" + (co.group || "")]; });
     video = {}; unknown = [];
     var fixes = s.pfFix || {};
     courses.forEach(function (co, ci) {
@@ -263,11 +265,34 @@
         (photos[x.e.id] ? '<img src="' + photos[x.e.id] + '" alt="">' : '<span class="nophoto">' + esc(x.e.first[0] || "?") + "</span>") +
         "<span><strong>" + esc(x.e.last) + "</strong> " + esc(x.e.first) + "</span></span></th>" + cells + "</tr>";
     }).join("") + "</tbody></table></div>" : '<p class="empty">' + (filter === "warn" ? "Rien à vérifier." : "Aucun élève.") + "</p>";
-    $("courses").innerHTML = (courses.length ? "<ol>" + courses.map(function (co) {
-      var d = new Date(co.date);
-      return "<li>" + esc(co.title || "Course") + (co.group ? ", " + esc(co.group) : "") + ", " + d.getHours() + "h" + pad(d.getMinutes()) + ", " + co.arrivals.length + " arrivées (" + esc(co.source) + ")</li>";
-    }).join("") + "</ol>" : "<p>Aucune course PhotoFinish pour cette classe ce jour-là.</p>") +
-      "";
+    var off = s.pfOff || {};
+    $("courses").innerHTML = (allCourses.length ? "<p>Décoche une course filmée pour rien (essai, faux départ) : elle n’est plus comptée et les suivantes reprennent leur numéro.</p>" + allCourses.map(function (co) {
+      var d = new Date(co.date), k = co.key + "|" + (co.group || "");
+      var grpLabel = (String(co.group || "").match(/Groupe\s*\S+/i) || [co.group || ""])[0];
+      var src = co.source === "cet iPad" ? "filmée sur cet iPad" : "fichier importé";
+      return '<label class="course-row"><input type="checkbox" data-course="' + esc(k) + '"' + (off[k] ? "" : " checked") + "> <span><strong>" + d.getHours() + "h" + pad(d.getMinutes()) + "</strong>" + (grpLabel ? ", " + esc(grpLabel) : "") + (co.title && !/^course$/i.test(co.title) ? ", " + esc(co.title) : "") + ", " + co.arrivals.length + " arrivées <small>(" + src + ")</small></span></label>";
+    }).join("") : "<p>Aucune course PhotoFinish pour cette classe ce jour-là.</p>");
+    $("courses").querySelectorAll("input[data-course]").forEach(function (cb) {
+      cb.onchange = function () {
+        var hh = H.load(), ss = hh.sessions.find(function (x) { return x.id === s.id; }); if (!ss) return;
+        ss.pfOff = ss.pfOff || {};
+        if (cb.checked) delete ss.pfOff[cb.dataset.course]; else ss.pfOff[cb.dataset.course] = 1;
+        H.save(hh); s.pfOff = ss.pfOff; refresh();
+      };
+    });
+    // Plus de courses filmées que prévu pour un élève : sans doute une course d'essai à décocher
+    var extra = races() && rows.some(function (x) { return x.races.length > races(); });
+    if (extra) $("coursesBox").open = true;
+    $("coursesBox").classList.toggle("notice", !!extra);
+    $("coursesBox").classList.toggle("warn", !!extra);
+    // Rien à comparer : on dit pourquoi
+    var anyOwn = rows.some(function (x) { return x.races.some(function (r) { return r.own != null; }); });
+    var anyVid = rows.some(function (x) { return x.races.some(function (r) { return r.v; }); });
+    var why = "";
+    if (!anyOwn && s.method === "chrono") why = "<h3>Pas encore de résultats d’élèves à comparer</h3><p>Seules les vidéos sont affichées. Les temps des élèves arrivent quand tu scannes leurs QR codes de fin (étape « Récupérer les résultats »). Résultats scannés sur un autre iPad : dans Scan CCF, « Mes sauvegardes », importe le fichier HTML de sauvegarde de la classe.</p>";
+    else if (!anyOwn && s.method === "paper") why = "<h3>Pas encore de fiches lues</h3><p>Photographie les fiches remplies pour comparer leurs temps aux vidéos.</p>";
+    else if (anyOwn && !anyVid) why = "<h3>Pas encore de vidéo à comparer</h3><p>Filme les arrivées avec PhotoFinish sur cet iPad, ou importe les fichiers HTML des courses filmées sur un autre iPad.</p>";
+    $("why").innerHTML = why ? '<div class="notice">' + why + "</div>" : "";
     renderUnknown();
     loadThumbs();
   }

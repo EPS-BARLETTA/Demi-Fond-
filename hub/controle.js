@@ -12,7 +12,7 @@
   var c = s && H.classById(h, s.classId);
   if (!s || !c) { $("table").innerHTML = '<p class="empty">Aucune séance en cours.</p>'; return; }
   var T = H.TYPES[s.type];
-  $("kicker").textContent = c.name + " · " + T.label + " · " + H.dayLabel(s.date);
+  $("kicker").textContent = c.name + ", " + H.typeLabel(s) + ", " + H.dayLabel(s.date);
   var filter = "all";
 
   /* ---------- temps ---------- */
@@ -166,13 +166,20 @@
   /* ---------- Scan CCF (QR Chrono Carnet, estimations annoncées) ---------- */
   // La classe peut exister dans Scan CCF sous un autre identifiant (créée avant, ou venue d'une sauvegarde) :
   // on prend tous les groupes Scan CCF de même identifiant ou de même nom.
-  var ex = null;
+  var ex = null, trainingAll = [], training = [];
   function loadScan() {
     var scan = H.readJSON("df-scan-ccf-v2", null), all = [];
     (scan && scan.groups || []).forEach(function (g) {
       if (g.id === c.id || H.norm(g.name) === H.norm(c.name)) (g.sessions || []).forEach(function (x) { all.push(x); });
     });
+    var ids = {}; all.forEach(function (x) { ids[x.id] = 1; });
+    trainingAll = (scan && scan.trainingScans || []).filter(function (t) { return ids[t.sessionId]; });
     ex = s.scanExerciseId ? all.find(function (x) { return x.id === s.scanExerciseId; }) : null;
+    if (s.type === "training") {
+      var tSess = trainingAll.filter(function (t) { return t.sessionId === s.scanExerciseId; });
+      if (!tSess.length) { var byDay = all.filter(function (x) { return x.lessonDate === s.date; }).map(function (x) { return x.id; }); tSess = trainingAll.filter(function (t) { return byDay.indexOf(t.sessionId) >= 0; }); }
+      training = tSess;
+    }
     var withData = all.filter(function (x) { return (x.students || []).length; });
     var sameDay = withData.filter(function (x) { return x.lessonDate === s.date; });
     var pool = (sameDay.length ? sameDay : withData).sort(function (a2, b2) { return String(a2.lessonDate || "").localeCompare(String(b2.lessonDate || "")) || (a2.createdAt || 0) - (b2.createdAt || 0); });
@@ -197,6 +204,11 @@
     H.writeJSON("df-scan-ccf-v2", db);
     return n;
   }
+  function trainingOf(e) {
+    var id = H.stdId(e.last, e.first, e.cls || c.name);
+    var list = training.filter(function (t) { return t.studentId === id || keyOf(t.last + " " + t.first) === keyOf(e.last + " " + e.first) || matchStudent(t.last + " " + t.first) === e; });
+    return list.length ? list[list.length - 1] : null;
+  }
   function scanStudent(e) {
     if (!ex) return null;
     var id = H.stdId(e.last, e.first, e.cls || c.name);
@@ -217,7 +229,7 @@
     }).catch(function () { return null; });
   }
 
-  function races() { return s.type === "ccf" ? 2 : s.type === "exam500" ? 3 : 0; }
+  function races() { return s.type === "ccf" ? 2 : s.type === "exam500" ? 3 : s.plan ? s.plan.distances.length : 0; }
 
   function build(sd) {
     var N = races();
@@ -243,6 +255,10 @@
       var n = Math.max(N, lastReal);
       for (var k = 1; k <= n; k++) {
         var r = { k: k, sid: e.id, v: vids[k - 1] || null, hole: holes[k - 1] || null, own: null, ownSrc: "", est: null, said: null };
+        if (s.method === "chrono" && s.type === "training") {
+          var tr = trainingOf(e);
+          if (tr) { var rr = (tr.races || [])[k - 1]; r.own = rr ? ms(rr.totalMs) : null; r.ownSrc = "QR"; }
+        }
         if (s.method === "chrono" && st) {
           if (s.type === "ccf" && st.races && st.races[k]) { r.own = ms(st.races[k].totalMs); r.est = st.races[k].project || null; }
           if (s.type === "exam500" && st.exam500 && st.exam500.races) {
@@ -306,7 +322,7 @@
     var head = "<tr><th>Élève</th>";
     for (var k = 1; k <= N; k++) {
       var extra = races() && k > races();
-      head += "<th>" + (s.type === "ccf" && k <= 2 ? (k === 1 ? "1er" : "2e") + " 800 m" : "Course " + k) +
+      head += "<th>" + (s.type === "ccf" && k <= 2 ? (k === 1 ? "1er" : "2e") + " 800 m" : "Course " + k + (s.plan && s.plan.distances[k - 1] ? " (" + s.plan.distances[k - 1] + " m)" : "")) +
         (extra ? '<br><span class="col-extra">En trop</span> <button type="button" class="btn line small" data-dropcol="' + k + '">Retirer la colonne</button>' : "") + "</th>";
     }
     $("table").innerHTML = list.length ? '<div class="tablewrap"><table class="ctl"><thead>' + head + "</tr></thead><tbody>" + list.map(function (x) {

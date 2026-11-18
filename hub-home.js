@@ -16,7 +16,7 @@
   var ROUTE = "eps-hub-route", order = null;
   try {
     if (params.get("hub")) {
-      order = { tool: tool, go: params.get("hub"), ex: params.get("ex"), cls: params.get("class"), tpl: params.get("tpl"), at: Date.now() };
+      order = { tool: tool, go: params.get("hub"), ex: params.get("ex"), cls: params.get("class"), tpl: params.get("tpl"), plan: params.get("plan"), at: Date.now() };
       sessionStorage.setItem(ROUTE, JSON.stringify(order));
     } else {
       order = JSON.parse(sessionStorage.getItem(ROUTE) || "null");
@@ -193,7 +193,14 @@
         if (go === "film" && (!cover || !cover.classList.contains("hidden"))) { setTimeout(function () { document.getElementById("cvStart").click(); toast("La classe de la séance est déjà choisie. Vérifie « Qui court ? » puis ouvre la caméra."); }, 200); }
       });
     } else if (tool === "chrono") {
-      if (go === "share") setTimeout(function () { toast("Règle la course, puis touche « Afficher le QR code » : la liste de la classe est jointe au QR code."); }, 600);
+      if (go === "share") {
+        // séance libre : on ouvre directement « Entraînement › Chrono performance », déjà réglé avec les courses de la séance
+        if (o.plan && +o.plan) {
+          var pickRadio = function (name, value) { var r = document.querySelector('input[name="' + name + '"][value="' + value + '"]'); var l = r && (r.closest("label") || r); if (l) l.click(); return !!r; };
+          setTimeout(function () { pickRadio("mode", "training"); setTimeout(function () { pickRadio("trainingTool", "chrono"); }, 350); }, 400);
+        }
+        setTimeout(function () { toast(o.plan && +o.plan ? "Les courses de la séance sont réglées. Touche « Afficher le QR code » : la liste de la classe est jointe au QR code." : "Règle la course, puis touche « Afficher le QR code » : la liste de la classe est jointe au QR code."); }, 900);
+      }
     }
   }
 
@@ -204,7 +211,7 @@
   // Ordre envoyé par l'application quand l'outil est déjà ouvert : on change d'écran sans recharger.
   window.addEventListener("message", function (e) {
     if (e.origin !== location.origin || !e.data || e.data.type !== "eps-route") return;
-    var o = { tool: tool, go: e.data.go, ex: e.data.ex, cls: e.data.cls, tpl: e.data.tpl, at: Date.now() };
+    var o = { tool: tool, go: e.data.go, ex: e.data.ex, cls: e.data.cls, tpl: e.data.tpl, plan: e.data.plan, at: Date.now() };
     route(o);
   });
   if (document.body) start(); else document.addEventListener("DOMContentLoaded", start);

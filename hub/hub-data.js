@@ -283,6 +283,27 @@
     return "STD-" + (h >>> 0).toString(16).padStart(8, "0");
   }
 
+  /* ---------- séance libre : « 4×100 », « 500-1000-500 », « 1000 » ---------- */
+  function parsePlan(text) {
+    var t = String(text || "").toLowerCase().replace(/[×*]/g, "x").replace(/\s*x\s*/g, "x").replace(/[–—→>+,;\/]/g, " ").replace(/-/g, " ").replace(/\bm\b/g, " ").replace(/(\d)\s*m\b/g, "$1");
+    var out = [], ok = true;
+    t.split(/\s+/).filter(Boolean).forEach(function (tok) {
+      var m = tok.match(/^(\d{1,2})x(\d{2,5})$/), d = tok.match(/^(\d{2,5})$/);
+      if (m) { for (var i = 0; i < +m[1]; i++) out.push(+m[2]); }
+      else if (d) out.push(+d[1]);
+      else ok = false;
+    });
+    if (!ok || !out.length || out.length > 30 || out.some(function (x) { return x < 20 || x > 10000; })) return null;
+    return out;
+  }
+  function planLabel(list) {
+    if (!list || !list.length) return "";
+    var parts = [], i = 0;
+    while (i < list.length) { var j = i; while (j + 1 < list.length && list[j + 1] === list[i]) j++; var n = j - i + 1; parts.push(n > 1 ? n + " × " + list[i] : String(list[i])); i = j + 1; }
+    return parts.join(" – ") + " m";
+  }
+  function typeLabel(s) { return s.type === "training" && s.plan && s.plan.distances ? "Entraînement " + planLabel(s.plan.distances) : TYPES[s.type].label; }
+
   /* ---------- séance ---------- */
   function today() { var d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
   function dayLabel(iso) { var p = String(iso || "").split("-"); return p.length === 3 ? p[2] + "/" + p[1] + "/" + p[0] : iso; }
@@ -291,6 +312,7 @@
     var c = classById(h, opts.classId);
     if (!c) throw new Error("Classe introuvable.");
     var s = { id: uid("se-"), classId: c.id, docsId: c.docsId || c.id, type: opts.type, method: opts.method, video: !!opts.video, date: today(), createdAt: Date.now(), done: {} };
+    if (opts.type === "training" && opts.plan && opts.plan.distances && opts.plan.distances.length) s.plan = { distances: opts.plan.distances.slice(), split: +opts.plan.split || 0 };
     // Une séance et un exercice prêts dans Scan CCF, pour scanner les QR au bon endroit
     if (opts.method === "chrono") {
       var db = syncScan(c);
@@ -312,8 +334,17 @@
     // Chrono Carnet (iPad du professeur) dans le bon mode
     if (opts.method === "chrono") {
       var ck = readJSON("chronoCarnetEPS_v4", null);
-      if (ck && typeof ck === "object") { ck.mode = TYPES[opts.type].chronoMode; ck.view = "setup"; writeJSON("chronoCarnetEPS_v4", ck); }
-      else writeJSON("chronoCarnetEPS_v4", { mode: TYPES[opts.type].chronoMode });
+      if (!ck || typeof ck !== "object") ck = {};
+      ck.mode = TYPES[opts.type].chronoMode; ck.view = "setup";
+      if (s.plan) {
+        // séance libre : Chrono Carnet en chronomètre, une course ou une série de courses
+        var dl = s.plan.distances, sp = s.plan.split;
+        ck.trainingTool = "chrono";
+        if (dl.length === 1) { ck.chronoPlanMode = "single"; ck.totalDistance = dl[0]; ck.chronoSingleWithSplits = !!sp; }
+        else { ck.chronoPlanMode = "series"; ck.chronoSeriesDistances = dl.slice(); ck.chronoSeriesText = dl.join(" "); ck.chronoSeriesWithSplits = !!sp; }
+        if (sp) ck.splitDistance = sp;
+      }
+      writeJSON("chronoCarnetEPS_v4", ck);
     }
     h.sessions.unshift(s);
     h.sessions = h.sessions.slice(0, 80);
@@ -349,7 +380,7 @@
   }
 
   global.EPSHub = {
-    TYPES: TYPES, METHODS: METHODS, load: load, save: save, current: current, classById: classById,
+    TYPES: TYPES, METHODS: METHODS, parsePlan: parsePlan, planLabel: planLabel, typeLabel: typeLabel, load: load, save: save, current: current, classById: classById,
     readRoster: readRoster, upsertClass: upsertClass, syncClass: syncClass, syncAll: syncAll,
     foundInTools: foundInTools, foundInDocs: foundInDocs, startSession: startSession,
     encodeRoster: encodeRoster, decodeRoster: decodeRoster, photosGet: photosGet, photosPut: photosPut, validPhoto: validPhoto,

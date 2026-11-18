@@ -36,9 +36,12 @@
     var db = H.readJSON("df-scan-ccf-v2", null);
     var g = db && (db.groups.find(function (x) { return x.id === c.id; }) || db.groups.find(function (x) { return norm(x.name) === norm(c.name) && x.sessions.some(function (e) { return e.lessonDate === s.date && (e.students || []).length; }); }));
     if (!g) return null;
-    var ex = g.sessions.filter(function (x) { return x.id === s.scanExerciseId || (x.lessonDate === s.date && (x.students || []).length); });
+    var hasTraining = function (x) { return (db.trainingScans || []).some(function (t) { return t.sessionId === x.id; }); };
+    var ex = g.sessions.filter(function (x) { return x.id === s.scanExerciseId || (x.lessonDate === s.date && ((x.students || []).length || hasTraining(x))); });
     if (!ex.length) return null;
-    return { group: { id: g.id, name: g.name, classroom: g.classroom, rosterPronote: g.rosterPronote }, exercises: ex, exam500Bareme: db.settings && db.settings.exam500Bareme };
+    var exIds = {}; ex.forEach(function (x) { exIds[x.id] = 1; });
+    var training = (db.trainingScans || []).filter(function (t) { return exIds[t.sessionId]; });
+    return { group: { id: g.id, name: g.name, classroom: g.classroom, rosterPronote: g.rosterPronote }, exercises: ex, training: training, exam500Bareme: db.settings && db.settings.exam500Bareme };
   }
   function pfCourses(s, c) {
     var classes = H.readJSON("cc_classes", []) || [];
@@ -95,14 +98,14 @@
   }
   function fileName(d) {
     var safe = function (v) { return String(v).normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, ""); };
-    return "Demi-fond_" + safe(d.klass.name) + "_" + safe(H.TYPES[d.session.type].short) + "_" + d.session.date + ".html";
+    return "Demi-fond_" + safe(d.klass.name) + "_" + safe(d.session.plan ? H.planLabel(d.session.plan.distances) : H.TYPES[d.session.type].short) + "_" + d.session.date + ".html";
   }
   function toHTML(d) {
     var T = H.TYPES[d.session.type];
     var json = JSON.stringify(d).replace(/</g, "\\u003c");
     return "<!DOCTYPE html><html lang=\"fr\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + esc(d.klass.name + ", " + T.label + ", " + H.dayLabel(d.session.date)) + "</title>" +
       "<style>body{margin:0;background:#eef2f6;color:#13233f;font:17px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}main{max-width:760px;margin:0 auto;padding:32px 20px}h1{font-size:30px;margin:0 0 4px}p{margin:6px 0}.card{background:#fff;border:1px solid #d6dee7;border-radius:16px;padding:18px 20px;margin-top:18px}li{margin:4px 0}small{color:#5b6b80}</style></head><body><main>" +
-      "<h1>" + esc(d.klass.name) + "</h1><p>" + esc(T.label) + ", séance du " + esc(H.dayLabel(d.session.date)) + "</p>" +
+      "<h1>" + esc(d.klass.name) + "</h1><p>" + esc(H.typeLabel(d.session)) + ", séance du " + esc(H.dayLabel(d.session.date)) + "</p>" +
       "<div class=\"card\"><strong>Ce fichier contient</strong><ul>" + summary(d).map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "<li>La liste de la classe (" + d.klass.students.length + " élèves)</li></ul>" +
       "<p><small>Pour rouvrir la séance : Demi-fond EPS, onglet Outils, « Rouvrir une séance enregistrée », puis choisis ce fichier.</small></p></div>" +
       "<script type=\"application/json\" id=\"demifond-seance\">" + json + "</script></main></body></html>";
@@ -192,6 +195,7 @@
       var g = db.groups.find(function (x) { return x.id === d.scan.group.id; });
       if (!g) { g = Object.assign({ sessions: [], students: [], archived: false }, d.scan.group); db.groups.push(g); }
       d.scan.exercises.forEach(function (ex) { var i = g.sessions.findIndex(function (x) { return x.id === ex.id; }); if (i < 0) g.sessions.push(ex); else if (!(g.sessions[i].students || []).length) g.sessions[i] = ex; });
+      if (d.scan.training && d.scan.training.length) { db.trainingScans = db.trainingScans || []; d.scan.training.forEach(function (t) { if (!db.trainingScans.some(function (y) { return String(y.id) === String(t.id) && y.sessionId === t.sessionId; })) db.trainingScans.push(t); }); }
       if (d.scan.exam500Bareme && !(db.settings && db.settings.exam500Bareme)) { db.settings = db.settings || {}; db.settings.exam500Bareme = d.scan.exam500Bareme; }
       H.writeJSON("df-scan-ccf-v2", db);
     }

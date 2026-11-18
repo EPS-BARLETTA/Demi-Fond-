@@ -30,8 +30,10 @@
         (s.video ? "Le temps de chaque élève est comparé à son arrivée filmée, à 2 secondes près. Les écarts sont signalés, avec la photo de l’arrivée." : "")).trim() };
     var list = [];
     if (s.method === "chrono") {
-      list.push({ key: "share", lane: "QR code", tool: "chrono", go: "share", url: "./chrono/?hub=share", cta: "Ouvrir Chrono Carnet", title: "Donner le QR code de la séance",
-        you: "Chrono Carnet s’ouvre en mode " + T.label + ". Vérifie la course, puis touche « Afficher le QR code » et montre-le aux élèves.",
+      list.push({ key: "share", lane: "QR code", tool: "chrono", go: "share", plan: s.plan ? 1 : 0, url: "./chrono/?hub=share" + (s.plan ? "&plan=1" : ""), cta: "Ouvrir Chrono Carnet", title: "Donner le QR code de la séance",
+        you: (s.plan ? "Chrono Carnet s’ouvre avec tes courses : " + H.planLabel(s.plan.distances) + (s.plan.split ? ", temps de passage tous les " + s.plan.split + " m" : "") + "."
+          : s.type === "training" ? "Chrono Carnet s’ouvre en mode Entraînement : choisis l’outil (chrono libre, minuteur, VMA)." : "Chrono Carnet s’ouvre en mode " + T.label + ".") +
+          " Vérifie la course, puis touche « Afficher le QR code » et montre-le aux élèves.",
         them: "Ils le scannent avec l’appareil photo de l’iPad, touchent leur nom dans la liste, choisissent avec qui ils courent, puis prennent leurs temps." });
       if (s.video) list.push(film);
       list.push({ key: "scan", lane: "Récupérer", tool: "scan", go: "scan", ex: s.scanExerciseId, url: "./scan/?hub=scan&ex=" + ex, cta: "Scanner les QR codes", title: "Récupérer les résultats",
@@ -127,7 +129,7 @@
         (past.length ? '<h2 class="section-title">Séances précédentes</h2>' + sortClasses(h.classes.filter(function (c) { return byClass[c.id]; })).map(function (c) {
           return '<p class="past-class">' + esc(c.name) + '</p><div class="past">' + byClass[c.id].map(function (x) {
             var tag = x.savedAt ? '<span class="saved-tag ok">Enregistrée' + (x.freedAt ? ", mémoire libérée" : "") + "</span>" : '<span class="saved-tag todo">À enregistrer</span>';
-            return '<div class="past-row"><span><strong>' + esc(H.TYPES[x.type].label) + "</strong>" + tag +
+            return '<div class="past-row"><span><strong>' + esc(H.typeLabel(x)) + "</strong>" + tag +
               "<small>" + esc(longDate(x.date)) + ", " + esc(METHOD_TEXT[x.method]) + '</small></span><span class="past-actions">' +
               (x.freedAt ? "" : '<button type="button" class="btn quiet small" data-end="' + esc(x.id) + '">' + (x.savedAt ? "Enregistrer à nouveau" : "Enregistrer") + "</button>") +
               '<button type="button" class="btn line small" data-open="' + esc(x.id) + '">Rouvrir</button></span></div>';
@@ -148,7 +150,7 @@
     if (sel == null || sel >= list.length) sel = nextIndex(s, list);
     var st = list[sel], done = !!s.done[st.key], last = sel === list.length - 1;
     v.innerHTML = '<div class="sess-head"><div><p class="date">' + esc(longDate(s.date)) + "</p><h1>" + esc(c.name) + "</h1>" +
-      '<p class="what">' + esc(H.TYPES[s.type].label) + ", " + esc(METHOD_TEXT[s.method]) + (s.video && s.method !== "video" ? ", arrivée filmée" : "") + ".</p></div>" +
+      '<p class="what">' + esc(H.typeLabel(s)) + ", " + esc(METHOD_TEXT[s.method]) + (s.video && s.method !== "video" ? ", arrivée filmée" : "") + ".</p></div>" +
       '<button type="button" class="btn line small" id="endSess">Terminer la séance</button></div>' +
       '<ol class="track" aria-label="Étapes de la séance">' + lanes(list, s, sel, true) + "</ol>" +
       '<article class="stepcard"><p class="where">Étape ' + (sel + 1) + " sur " + list.length + "</p><h2>" + esc(st.title) + "</h2>" +
@@ -172,7 +174,7 @@
     var s = H.current(); if (!s) return;
     var list = steps(s), st = list[i];
     openTool(st.tool, st.url, { kicker: "Étape " + (i + 1) + " sur " + list.length, title: st.title, step: i, total: list.length,
-      order: st.go ? { go: st.go, ex: st.ex, cls: st.cls, tpl: st.tpl } : null, back: "Séance" });
+      order: st.go ? { go: st.go, ex: st.ex, cls: st.cls, tpl: st.tpl, plan: st.plan } : null, back: "Séance" });
   }
   function openTool(k, url, opt) {
     opt = opt || {};
@@ -231,7 +233,7 @@
   function openWizard() {
     var h = H.load();
     if (!h.classes.length) return openClass(null, true);
-    $("wizForm").reset(); pane = 0;
+    $("wizForm").reset(); pane = 0; $("wizPlanText").value = ""; $("wizPlanSplit").value = "";
     $("wizClasses").innerHTML = sortClasses(h.classes).map(function (c) {
       return '<label><input type="radio" name="classId" value="' + esc(c.id) + '"' + (h.classes.length === 1 ? " checked" : "") + '><span class="opt"><strong>' + esc(c.name) + "</strong><small>" + plural(c.students.length, "élève") + "</small></span></label>";
     }).join("");
@@ -239,9 +241,19 @@
   }
   function wizData() {
     var f = $("wizForm");
+    var txt = $("wizPlanText").value.trim(), dist = txt ? H.parsePlan(txt) : null, split = Math.max(0, Math.round(+$("wizPlanSplit").value || 0));
     return { classId: (f.querySelector("input[name=classId]:checked") || {}).value, type: (f.querySelector("input[name=type]:checked") || {}).value,
-      method: (f.querySelector("input[name=method]:checked") || {}).value, video: f.video.checked };
+      method: (f.querySelector("input[name=method]:checked") || {}).value, video: f.video.checked,
+      planText: txt, plan: dist ? { distances: dist, split: split } : null };
   }
+  function planInfo() {
+    var d = wizData();
+    document.querySelectorAll("#wizPlanChips button").forEach(function (b) { b.setAttribute("aria-pressed", String(H.norm(b.dataset.plan) === H.norm(d.planText))); });
+    $("wizPlanInfo").textContent = !d.planText ? "Vide : chrono libre, sans distance fixée." : d.plan ? d.plan.distances.length + " course" + (d.plan.distances.length > 1 ? "s" : "") + " : " + H.planLabel(d.plan.distances) + (d.plan.split ? ", passages tous les " + d.plan.split + " m" : ", sans temps de passage") + "." : "Je ne comprends pas cette suite. Écris par exemple « 4x100 » ou « 500 1000 500 ».";
+  }
+  $("wizPlanChips").addEventListener("click", function (e) { var b = e.target.closest("button[data-plan]"); if (!b) return; $("wizPlanText").value = b.dataset.plan; planInfo(); });
+  $("wizPlanText").addEventListener("input", planInfo);
+  $("wizPlanSplit").addEventListener("input", planInfo);
   function showPane() {
     var d = wizData();
     document.querySelectorAll("#wiz .pane").forEach(function (p) { p.hidden = +p.dataset.pane !== pane; });
@@ -249,15 +261,16 @@
     $("wizPrev").hidden = pane === 0; $("wizNext").hidden = pane === 3; $("wizGo").hidden = pane !== 3;
     $("wizErr").textContent = "";
     var training = d.type === "training";
+    $("wizPlan").hidden = !training; if (training) planInfo();
     $("wizVideoOnly").hidden = !training;
     if (!training && d.method === "video") { $("wizForm").querySelector("input[name=method][value=video]").checked = false; d.method = undefined; }
     $("wizVideoOpt").hidden = d.method === "video";
     if (pane === 3) {
       var c = H.classById(H.load(), d.classId);
-      var fake = { id: "x", type: d.type, method: d.method, video: d.method !== "video" && d.video, classId: d.classId,
+      var fake = { id: "x", type: d.type, method: d.method, video: d.method !== "video" && d.video, classId: d.classId, plan: d.type === "training" ? d.plan : null,
         scanExerciseId: d.method === "chrono" ? "x" : null, done: {} };
       var list = steps(fake);
-      $("recapTitle").textContent = c.name + ", " + H.TYPES[d.type].label;
+      $("recapTitle").textContent = c.name + ", " + H.typeLabel(fake);
       $("recapLead").textContent = "Voici les " + list.length + " étapes. Chacune ouvre le bon outil, déjà réglé pour cette classe.";
       $("recapTrack").innerHTML = lanes(list, null, -1, false);
       $("recapList").innerHTML = list.map(function (st) { return "<li><strong>" + esc(st.title) + "</strong></li>"; }).join("");
@@ -268,6 +281,7 @@
     var d = wizData();
     if (pane === 0 && !d.classId) { $("wizErr").textContent = "Choisis une classe."; return; }
     if (pane === 1 && !d.type) { $("wizErr").textContent = "Choisis l’épreuve."; return; }
+    if (pane === 1 && d.type === "training" && d.planText && !d.plan) { $("wizErr").textContent = "Écris les courses comme « 4x100 » ou « 500 1000 500 », ou laisse vide pour un chrono libre."; return; }
     if (pane === 2 && !d.method) { $("wizErr").textContent = "Choisis qui prend les temps."; return; }
     pane++; showPane();
   };
@@ -279,7 +293,7 @@
     var go = function () {
       var hh = H.load(), cc = H.classById(hh, d.classId);
       H.syncClass(cc).then(function () {
-        H.startSession(hh, { classId: d.classId, type: d.type, method: d.method, video: d.video && d.method !== "video" });
+        H.startSession(hh, { classId: d.classId, type: d.type, method: d.method, video: d.video && d.method !== "video", plan: d.type === "training" ? d.plan : null });
         $("wiz").close(); sel = null;
         if (location.hash !== "#seance") location.hash = "#seance"; else route();
       }).catch(function (err) { $("wizErr").textContent = err.message; });
@@ -613,7 +627,7 @@
     var h = H.load(), x = h.sessions.find(function (y) { return y.id === id; }), c = x && H.classById(h, x.classId);
     if (!x) return;
     $("endDlg").querySelector("h2").textContent = closing ? "Terminer la séance" : "Enregistrer la séance";
-    $("endLead").textContent = (c ? c.name + ", " : "") + H.TYPES[x.type].label + ", " + longDate(x.date) + ".";
+    $("endLead").textContent = (c ? c.name + ", " : "") + H.typeLabel(x) + ", " + longDate(x.date) + ".";
     $("endOk").hidden = !closing; $("endCancel").textContent = closing ? "Revenir à la séance" : "Fermer";
     $("endErr").textContent = ""; $("endFreed").textContent = x.freedAt ? "Mémoire libérée." : "";
     $("endSaved").textContent = x.savedAt ? "Enregistrée le " + new Date(x.savedAt).toLocaleString("fr-FR", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }) + (x.savedName ? " (" + x.savedName + ")" : "") + "." : "";

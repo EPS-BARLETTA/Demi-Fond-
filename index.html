@@ -11,7 +11,7 @@
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./apple-touch-icon.png">
 <link rel="icon" href="./icon-192.png">
-<link rel="stylesheet" href="./hub.css?v=11">
+<link rel="stylesheet" href="./hub.css?v=12">
 <title>Demi-fond EPS</title>
 </head>
 <body>
@@ -56,7 +56,20 @@
         <div class="choice">
           <label><input type="radio" name="type" value="ccf"><span class="opt"><strong>CCF 2 × 800 m</strong><small>Estimation avant chaque course, passages aux 200 m, note AFL.</small></span></label>
           <label><input type="radio" name="type" value="exam500"><span class="opt"><strong>Examen 3 × 500 m</strong><small>Annonce des temps, passages au 250 et au 500, note.</small></span></label>
-          <label><input type="radio" name="type" value="training"><span class="opt"><strong>Entraînement</strong><small>Séries, tours de piste, VMA ou chrono libre. Pas de note.</small></span></label>
+          <label><input type="radio" name="type" value="training"><span class="opt"><strong>Séance libre</strong><small>Tes courses : 4 × 100, 500 – 1000 – 500, 1000… Pas de note.</small></span></label>
+        </div>
+        <div class="plan" id="wizPlan" hidden>
+          <label class="field">Quelles courses ?<input name="plan" id="wizPlanText" placeholder="Ex. 4x100, 500 1000 500, 1000" autocomplete="off" inputmode="text"></label>
+          <div class="plan-chips" id="wizPlanChips">
+            <button type="button" data-plan="4x100">4 × 100</button>
+            <button type="button" data-plan="4x200">4 × 200</button>
+            <button type="button" data-plan="500 1000 500">500 – 1000 – 500</button>
+            <button type="button" data-plan="3x500">3 × 500</button>
+            <button type="button" data-plan="1000">1000</button>
+            <button type="button" data-plan="">Chrono libre</button>
+          </div>
+          <label class="field split">Temps de passage tous les<span><input name="split" id="wizPlanSplit" type="number" min="0" step="50" placeholder="—" inputmode="numeric"> m</span></label>
+          <p class="hint" id="wizPlanInfo">Vide : chrono libre, sans distance fixée.</p>
         </div>
       </div>
       <div class="pane" data-pane="2" hidden>
@@ -186,10 +199,10 @@
 </dialog>
 
 <script src="./chrono/js/qrcode.min.js?v=1"></script>
-<script src="./hub/hub-data.js?v=4"></script>
+<script src="./hub/hub-data.js?v=5"></script>
 <script src="./hub/prenoms.js?v=1"></script>
 <script src="./hub/trombi.js?v=1"></script>
-<script src="./hub/archive.js?v=2"></script>
-<script src="./hub/hub-ui.js?v=6"></script>
+<script src="./hub/archive.js?v=3"></script>
+<script src="./hub/hub-ui.js?v=8"></script>
 </body>
 </html>

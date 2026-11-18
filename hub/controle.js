@@ -38,22 +38,88 @@
   var byKey = {};
   c.students.forEach(function (e) { byKey[keyOf(e.last + " " + e.first)] = e; });
 
-  /* ---------- PhotoFinish ---------- */
+  /* ---------- PhotoFinish ----------
+     Deux sources, mises dans le même format { date, title, group, arrivals: [{ name, t, pid | src }] } :
+     - les courses filmées sur cet iPad (historique PhotoFinish) ;
+     - les fiches HTML exportées par PhotoFinish depuis un autre iPad, importées ici. */
   var pfClasses = H.readJSON("cc_classes", []) || [];
   var pfClass = pfClasses.find(function (k) { return k.id === c.id; }) || pfClasses.find(function (k) { return H.norm(k.name) === H.norm(c.name); });
-  var courses = (H.readJSON("cc_history", []) || []).filter(function (x) {
+  var pad = function (n) { return String(n).padStart(2, "0"); };
+  var minuteKey = function (ts) { var d = new Date(ts); return d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + pad(d.getHours()) + pad(d.getMinutes()); };
+  var localCourses = (H.readJSON("cc_history", []) || []).filter(function (x) {
     return x.meta && sameDay(x.meta.date, s.date) && ((pfClass && x.meta.classId === pfClass.id) || H.norm(x.meta.cls) === H.norm(c.name));
-  }).sort(function (a, b) { return a.meta.date - b.meta.date; });
-  var video = {}, unknown = [];
-  courses.forEach(function (co, ci) {
-    co.arrivals.forEach(function (a, ai) {
-      var r = (co.runners || []).find(function (x) { return x.id === a.runnerId; });
-      var name = r ? r.name : a.freeName;
-      if (!name) return;
-      var e = byKey[keyOf(name)];
-      var rec = { t: a.t, pid: a.pid, course: ci, rank: ai + 1, title: co.meta.title, group: co.meta.group };
-      if (!e) { unknown.push(Object.assign({ name: name }, rec)); return; }
-      (video[e.id] = video[e.id] || []).push(rec);
+  }).map(function (co) {
+    return { date: co.meta.date, key: minuteKey(co.meta.date), title: co.meta.title, group: co.meta.group, source: "cet iPad",
+      arrivals: co.arrivals.map(function (a) { var r = (co.runners || []).find(function (x) { return x.id === a.runnerId; }); return { name: r ? r.name : a.freeName, t: a.t, pid: a.pid }; }) };
+  });
+  var imported = [], courses = [], video = {}, unknown = [];
+  function buildVideo() {
+    var keys = {}; localCourses.forEach(function (co) { keys[co.key] = 1; });
+    courses = localCourses.concat(imported.filter(function (co) { return !keys[co.key]; })).sort(function (x, y) { return x.date - y.date; });
+    video = {}; unknown = [];
+    courses.forEach(function (co, ci) {
+      co.arrivals.forEach(function (a, ai) {
+        if (!a.name || /^non nomm/i.test(a.name)) return;
+        var e = byKey[keyOf(a.name)];
+        var rec = { t: a.t, pid: a.pid, src: a.src, course: ci, rank: ai + 1, title: co.title, group: co.group };
+        if (!e) { unknown.push(Object.assign({ name: a.name }, rec)); return; }
+        (video[e.id] = video[e.id] || []).push(rec);
+      });
+    });
+  }
+  // Fiche HTML « course_AAAA-MM-JJ_HHhMM_Classe.html » exportée par PhotoFinish
+  function parsePF(html, fname) {
+    var d = new DOMParser().parseFromString(html, "text/html");
+    var title = (d.querySelector("h1") || {}).textContent || fname, meta = ((d.querySelector(".m") || {}).textContent || "").trim();
+    var fm = String(fname).match(/(\d{4})-(\d{2})-(\d{2})_(\d{2})h(\d{2})/);
+    var date = fm ? new Date(+fm[1], +fm[2] - 1, +fm[3], +fm[4], +fm[5]).getTime() : Date.now();
+    var arrivals = [], last = null, lastSrc = null;
+    d.querySelectorAll("tbody tr").forEach(function (tr) {
+      var tds = [].slice.call(tr.children), tcell = tr.querySelector("td.t");
+      var ncell = tds.find(function (td) { return !td.className && td.textContent.trim(); });
+      if (tcell) {
+        last = ms(tcell.textContent.trim());
+        var img = tr.querySelector("td.ph img"), src = img ? img.getAttribute("src") || "" : "";
+        lastSrc = /^data:image\//.test(src) ? src : null;
+      }
+      if (ncell) arrivals.push({ name: ncell.textContent.trim(), t: last, src: lastSrc });
+    });
+    return { date: date, key: minuteKey(date), title: title.trim(), group: meta, source: fname, arrivals: arrivals.filter(function (a) { return a.t != null; }) };
+  }
+  // Courses importées gardées sur l'appareil pour cette séance
+  var IMP_DB = "eps-hub-pf";
+  function impDB() { return new Promise(function (res, rej) { var r = indexedDB.open(IMP_DB, 1); r.onupgradeneeded = function () { r.result.createObjectStore("s"); }; r.onsuccess = function () { res(r.result); }; r.onerror = function () { rej(r.error); }; }); }
+  function loadImported() {
+    return impDB().then(function (db) { return new Promise(function (res) { var g = db.transaction("s").objectStore("s").get(s.id); g.onsuccess = function () { db.close(); res(g.result || []); }; g.onerror = function () { db.close(); res([]); }; }); }).catch(function () { return []; });
+  }
+  function saveImported() {
+    return impDB().then(function (db) { return new Promise(function (res) { var t = db.transaction("s", "readwrite"); t.objectStore("s").put(imported, s.id); t.oncomplete = function () { db.close(); res(); }; t.onerror = function () { db.close(); res(); }; }); }).catch(function () {});
+  }
+  function shrink(src) {
+    return new Promise(function (res) {
+      var im = new Image();
+      im.onload = function () { try { var k = Math.min(1, 320 / im.naturalWidth), cv = document.createElement("canvas"); cv.width = Math.round(im.naturalWidth * k); cv.height = Math.round(im.naturalHeight * k); cv.getContext("2d").drawImage(im, 0, 0, cv.width, cv.height); res(cv.toDataURL("image/jpeg", 0.72)); } catch (e) { res(src); } };
+      im.onerror = function () { res(null); }; im.src = src;
+    });
+  }
+  $("pfFiles").addEventListener("change", function (e) {
+    var files = [].slice.call(e.target.files || []); e.target.value = "";
+    var n = 0;
+    files.reduce(function (ch, f) {
+      return ch.then(function () { return f.text(); }).then(function (txt) {
+        var co = parsePF(txt, f.name); if (!co.arrivals.length) return;
+        var cache = {};
+        return co.arrivals.reduce(function (c2, a) {
+          return c2.then(function () { if (!a.src) return; if (cache[a.src]) { a.src = cache[a.src]; return; } var orig = a.src; return shrink(orig).then(function (sm) { cache[orig] = sm; a.src = sm; }); });
+        }, Promise.resolve()).then(function () {
+          imported = imported.filter(function (x) { return x.key !== co.key || x.group !== co.group; });
+          imported.push(co); n++;
+        });
+      }).catch(function () {});
+    }, Promise.resolve()).then(function () {
+      saveImported();
+      $("pfStatus").textContent = n ? n + " course" + (n > 1 ? "s" : "") + " PhotoFinish importée" + (n > 1 ? "s" : "") + "." : "Aucune course reconnue : choisis les fichiers HTML exportés par PhotoFinish (course_….html).";
+      refresh();
     });
   });
 
@@ -129,7 +195,7 @@
   function cell(r) {
     var parts = [];
     var v = r.v;
-    if (v) parts.push('<button type="button" class="thumb" data-pid="' + esc(v.pid || "") + '" data-txt="' + esc("Course " + r.k + " · arrivée n°" + v.rank + " · " + fmt(v.t, true)) + '" aria-label="Photo d’arrivée"><img alt=""></button>');
+    if (v) parts.push('<button type="button" class="thumb" data-pid="' + esc(v.pid || "") + '" data-src="' + esc(v.src || "") + '" data-txt="' + esc("Course " + r.k + " · arrivée n°" + v.rank + " · " + fmt(v.t, true)) + '" aria-label="Photo d’arrivée"><img alt=""></button>');
     var lines = [];
     if (r.own != null || v) {
       var cls = r.timeOk === true ? "ok" : r.timeOk === false ? "bad" : "";
@@ -164,9 +230,9 @@
         "<span><strong>" + esc(x.e.last) + "</strong> " + esc(x.e.first) + "</span></span></th>" + cells + "</tr>";
     }).join("") + "</tbody></table></div>" : '<p class="empty">' + (filter === "warn" ? "Rien à vérifier." : "Aucun élève.") + "</p>";
     $("courses").innerHTML = (courses.length ? "<ol>" + courses.map(function (co) {
-      var d = new Date(co.meta.date);
-      return "<li>" + esc(co.meta.title || "Course") + (co.meta.group ? " · " + esc(co.meta.group) : "") + " · " + d.getHours() + "h" + String(d.getMinutes()).padStart(2, "0") + " · " + co.arrivals.length + " arrivées</li>";
-    }).join("") + "</ol>" : "<p>Aucune course PhotoFinish ce jour-là pour cette classe.</p>") +
+      var d = new Date(co.date);
+      return "<li>" + esc(co.title || "Course") + (co.group ? ", " + esc(co.group) : "") + ", " + d.getHours() + "h" + pad(d.getMinutes()) + ", " + co.arrivals.length + " arrivées (" + esc(co.source) + ")</li>";
+    }).join("") + "</ol>" : "<p>Aucune course PhotoFinish pour cette classe ce jour-là.</p>") +
       (unknown.length ? "<p><strong>Arrivées sans élève reconnu :</strong> " + unknown.map(function (u) { return esc(u.name) + " (" + fmt(u.t, true) + ")"; }).join(", ") + "</p>" : "");
     loadThumbs();
   }
@@ -190,6 +256,7 @@
   }
   function loadThumbs() {
     document.querySelectorAll(".thumb[data-pid]").forEach(function (b) {
+      if (b.dataset.src) { b.querySelector("img").src = b.dataset.src; return; }
       if (!b.dataset.pid) { b.remove(); return; }
       pfPhoto(b.dataset.pid).then(function (u) { if (u) b.querySelector("img").src = u; else b.remove(); });
     });
@@ -212,12 +279,12 @@
   if (s.method === "paper") how.push("temps écrit sur la fiche");
   $("explain").textContent = "Chaque " + (how[0] || "temps relevé") + " est comparé à l’arrivée filmée avec PhotoFinish : conforme à 2 secondes près." +
     (s.method === "paper" && s.type === "ccf" ? " L’estimation écrite sur la fiche est comparée à celle annoncée et notée dans Scan CCF." : "") +
-    " Les courses PhotoFinish du jour sont prises dans l’ordre : la 1re course filmée d’un élève est sa course 1.";
+    " Les courses PhotoFinish du jour sont prises dans l’ordre : la 1re course filmée d’un élève est sa course 1. Filmé sur un autre iPad ? Importe ses fichiers HTML.";
 
-  var rows = [];
-  Promise.all([docsState(), H.photosGet(c.students.map(function (e) { return e.id; }))]).then(function (r) {
-    photos = r[1];
-    rows = build(r[0]);
-    render(rows);
+  var rows = [], sd = null;
+  function refresh() { buildVideo(); rows = build(sd); render(rows); }
+  Promise.all([docsState(), H.photosGet(c.students.map(function (e) { return e.id; })), loadImported()]).then(function (r) {
+    sd = r[0]; photos = r[1]; imported = r[2] || [];
+    refresh();
   });
 })();

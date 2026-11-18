@@ -94,6 +94,63 @@
     document.body.appendChild(b); b.click(); b.remove();
   }
 
+  /* Fiches papier : les courses PhotoFinish filmées sur cet iPad sont ajoutées au contrôle,
+     comme si leurs fiches HTML avaient été importées (même format que l'import de ScanDocument). */
+  function pfSyncLocal(tid, cls) {
+    try {
+      if (typeof pfData !== "function" || typeof persist !== "function") return Promise.resolve(0);
+      var hist = JSON.parse(localStorage.getItem("cc_history") || "[]");
+      var cname = typeof className === "function" && cls ? className(cls) : "";
+      var norm = function (v) { return String(v || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim(); };
+      var pfClasses = JSON.parse(localStorage.getItem("cc_classes") || "[]");
+      var pfc = pfClasses.find(function (k) { return k.id === cls; }) || pfClasses.find(function (k) { return norm(k.name) === norm(cname); });
+      var list = hist.filter(function (h) { return h.meta && ((pfc && h.meta.classId === pfc.id) || (cname && norm(h.meta.cls) === norm(cname))); });
+      if (!list.length) return Promise.resolve(0);
+      var P = pfData(tid), pad = function (n) { return String(n).padStart(2, "0"); };
+      var getPhoto = (function () {
+        var dbp = null;
+        return function (pid) {
+          if (!pid) return Promise.resolve(null);
+          dbp = dbp || new Promise(function (res, rej) { var r = indexedDB.open("chrono-eps", 1); r.onupgradeneeded = function () { r.result.createObjectStore("photos", { keyPath: "id" }); }; r.onsuccess = function () { res(r.result); }; r.onerror = function () { rej(r.error); }; });
+          return dbp.then(function (db) { return new Promise(function (res) { var g = db.transaction("photos").objectStore("photos").get(pid); g.onsuccess = function () { res(g.result && g.result.blob || null); }; g.onerror = function () { res(null); }; }); })
+            .then(function (blob) { if (!blob) return null; return new Promise(function (res) { var fr = new FileReader(); fr.onload = function () { res(fr.result); }; fr.onerror = function () { res(null); }; fr.readAsDataURL(blob); }); })
+            .then(function (url) { return url && typeof pfShrink === "function" ? pfShrink(url) : url; }).catch(function () { return null; });
+        };
+      })();
+      var added = 0;
+      return list.reduce(function (chain, h) {
+        return chain.then(function () {
+          var d = new Date(h.meta.date), key = d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + pad(d.getHours()) + pad(d.getMinutes());
+          var meta = (h.meta.cls || cname) + (h.meta.group ? ", " + h.meta.group : "") + ", " + d.getHours() + "h" + pad(d.getMinutes());
+          if (P.files.some(function (f) { return f.key === key && f.meta === meta; })) return;
+          var runners = h.runners || [], rows = [], photos = [], pidIndex = {}, seen = {};
+          var jobs = (h.arrivals || []).reduce(function (ch, a) {
+            return ch.then(function () {
+              var r = runners.find(function (x) { return x.id === a.runnerId; }), name = r ? r.name : a.freeName;
+              if (r) seen[r.id] = 1;
+              if (!name) return;
+              var row = { name: name, time: Math.round(a.t / 10) / 100, ph: null };
+              rows.push(row);
+              if (!a.pid) return;
+              if (pidIndex[a.pid] !== undefined) { row.ph = pidIndex[a.pid]; return; }
+              return getPhoto(a.pid).then(function (src) { pidIndex[a.pid] = src ? photos.push(src) - 1 : null; row.ph = pidIndex[a.pid]; });
+            });
+          }, Promise.resolve());
+          return jobs.then(function () {
+            runners.forEach(function (r) { if (!seen[r.id] && r.name) rows.push({ name: r.name, time: null, dnf: true }); });
+            if (!rows.length) return;
+            P.files.push({ name: "PhotoFinish (cet iPad)", title: h.meta.title || "Course", meta: meta, key: key, course: "auto", rows: rows, photos: photos });
+            added++;
+          });
+        });
+      }, Promise.resolve()).then(function () {
+        if (!added) return 0;
+        P.files.sort(function (a, b) { return a.key.localeCompare(b.key); });
+        return Promise.resolve(persist()).then(function () { return added; });
+      });
+    } catch (e) { return Promise.resolve(0); }
+  }
+
   function route(o) {
     o = o || order;
     if (!o || !o.go) return;
@@ -114,10 +171,20 @@
     } else if (tool === "docs") {
       waitFor(function () { return typeof state !== "undefined" && state.templates && state.templates.length && typeof view === "function"; }, function () {
         setTimeout(function () {
+          // la fenêtre « Estimations annoncées » d'une étape précédente ne reste pas ouverte par-dessus
+          if (go !== "ann" && typeof annRender === "function") { try { ann = null; annRender(); } catch (e) {} }
           if (go === "prep" && typeof openEval === "function") { openEval({ classId: cls || undefined, tplId: tpl || undefined }); toast("Classe et fiche déjà choisies : imprime ou télécharge les fiches."); }
           else if (go === "batch") { view("batch"); var sel = document.getElementById("batchClass"); if (sel && cls) { sel.value = cls; if (typeof renderBatch === "function") renderBatch(); } toast("Photographie les fiches remplies : elles sont lues et rangées automatiquement."); }
           else if (go === "results" && typeof goResults === "function") { var t = tpl && state.templates.some(function (x) { return x.id === tpl; }) ? tpl : state.templates[0].id; goResults(t, cls || "*"); }
           else if (go === "classes") view("classes");
+          else if (go === "ann" && typeof annOpen === "function") { annOpen(tpl || undefined, cls || undefined); }
+          else if (go === "control" && typeof goResults === "function") {
+            var tc = tpl && state.templates.some(function (x) { return x.id === tpl; }) ? tpl : state.templates[0].id;
+            goResults(tc, cls || "*");
+            pfSyncLocal(tc, cls).then(function (n) {
+              if (n) { if (typeof renderResults === "function") renderResults(); toast(n + " course" + (n > 1 ? "s" : "") + " PhotoFinish de cet iPad ajoutée" + (n > 1 ? "s" : "") + " au contrôle."); }
+            });
+          }
         }, 200);
       });
     } else if (tool === "video") {

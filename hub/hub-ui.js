@@ -25,7 +25,7 @@
     var film = { key: "film", lane: "Vidéo", tool: "video", go: "film", url: "./video/?hub=film", cta: "Ouvrir PhotoFinish", title: "Filmer les arrivées",
       you: "La classe et ses groupes sont déjà chargés dans PhotoFinish. Une course filmée par groupe : DÉPART au signal, un appui sur ARRIVÉE par élève. Ensuite, associe chaque photo d’arrivée à un élève.",
       them: s.method === "chrono" ? "Ils te disent dans quel groupe ils courent. À l’arrivée, ils viennent te montrer leur iPad pour vérifier leur temps." : "Ils te disent dans quel groupe ils courent." };
-    var control = { key: "control", lane: "Contrôle", tool: "page", url: "./hub/controle.html?s=" + sid, cta: "Ouvrir le contrôle", title: "Contrôler les temps",
+    var control = { key: "control", lane: "Contrôle", tool: "page", url: "./hub/controle/?s=" + sid, cta: "Ouvrir le contrôle", title: "Contrôler les temps",
       you: ((s.method === "paper" && s.type === "ccf" ? "L’estimation écrite sur chaque fiche est comparée à celle que l’élève t’a annoncée. " : "") +
         (s.video ? "Le temps de chaque élève est comparé à son arrivée filmée, à 2 secondes près. Les écarts sont signalés, avec la photo de l’arrivée." : "")).trim() };
     var list = [];
@@ -41,17 +41,20 @@
       list.push({ key: "notes", lane: graded ? "Notes" : "Résultats", tool: "scan", go: "results", ex: s.scanExerciseId, url: "./scan/?hub=results&ex=" + ex, cta: graded ? "Voir les notes" : "Voir les résultats", title: graded ? "Voir les notes" : "Voir les résultats",
         you: graded ? "En haut, les élèves pas encore scannés et les anomalies. Touche un élève pour voir le détail et sa note." : "Temps, allures et progrès de chaque élève." });
     } else if (s.method === "paper") {
-      list.push({ key: "print", lane: "Fiches", tool: "docs", go: "prep", cls: s.docsId || s.classId, tpl: T.sheet, url: "./docs/?hub=prep&class=" + cid + tpl, cta: "Préparer l’impression", title: "Imprimer les fiches",
+      var fiche = { cls: s.docsId || s.classId, tpl: T.sheet };
+      list.push({ key: "print", lane: "Fiches", tool: "docs", go: "prep", cls: fiche.cls, tpl: fiche.tpl, url: "./docs/?hub=prep&class=" + cid + tpl, cta: "Préparer l’impression", title: "Imprimer les fiches",
         you: "Une fiche par élève, avec son nom et un QR code. La classe" + (T.sheet ? " et la fiche sont déjà choisies" : " est déjà choisie, choisis la fiche") + " : imprime ou télécharge le PDF." });
-      if (s.type === "ccf" && s.scanExerciseId) list.push({ key: "est", lane: "Estimations", tool: "page", url: "./hub/estimations.html?s=" + sid, cta: "Noter les estimations", title: "Noter les estimations annoncées",
-        you: "Avant chaque 800, demande à chaque élève son temps prévu et note-le. Il sera comparé à ce qu’il a écrit sur sa fiche.",
+      if (graded) list.push({ key: "est", lane: "Estimations", tool: "docs", go: "ann", cls: fiche.cls, tpl: fiche.tpl, url: "./docs/?hub=ann&class=" + cid + tpl, cta: "Noter les estimations", title: "Noter les estimations annoncées",
+        you: "Avant chaque course, chaque élève t’annonce son temps prévu : tape « 320 » pour 3:20, puis Entrée pour passer au suivant. Elles seront comparées à ce qui est écrit sur les fiches.",
         them: "Ils écrivent leur estimation sur la fiche et te l’annoncent." });
       if (s.video) list.push(film);
-      list.push({ key: "photo", lane: "Photos", tool: "docs", go: "batch", cls: s.docsId || s.classId, url: "./docs/?hub=batch&class=" + cid, cta: "Photographier les fiches", title: "Photographier les fiches remplies",
+      list.push({ key: "photo", lane: "Photos", tool: "docs", go: "batch", cls: fiche.cls, url: "./docs/?hub=batch&class=" + cid, cta: "Photographier les fiches", title: "Photographier les fiches remplies",
         you: "Prends chaque fiche en entier, à plat, les quatre carrés visibles. Elles sont lues toutes seules ; celles qui posent question restent à vérifier." });
-      if (s.video || (s.type === "ccf" && s.scanExerciseId)) list.push(control);
-      list.push({ key: "notes", lane: graded ? "Notes" : "Résultats", tool: "docs", go: "results", cls: s.docsId || s.classId, tpl: T.sheet, url: "./docs/?hub=results&class=" + cid + tpl, cta: graded ? "Voir les notes" : "Voir les résultats", title: graded ? "Voir les notes" : "Voir les résultats",
-        you: "Vérifie les fiches signalées, valide-les, puis exporte les notes." });
+      list.push({ key: "notes", lane: graded ? "Contrôle et notes" : "Résultats", tool: "docs", go: "control", cls: fiche.cls, tpl: fiche.tpl, url: "./docs/?hub=control&class=" + cid + tpl,
+        cta: graded ? "Contrôler et noter" : "Voir les résultats", title: graded ? "Contrôler les fiches et noter" : "Voir les résultats",
+        you: "Les résultats des fiches s’ouvrent avec le contrôle : en rouge, les estimations différentes de celles annoncées" + (s.video ? " et les temps à plus de 2 s de PhotoFinish, avec la photo d’arrivée" : "") +
+          ". Pour chaque alerte, garde la fiche ou prends la bonne valeur, puis exporte les notes." +
+          (s.video ? " Les courses filmées sur cet iPad sont ajoutées toutes seules ; pour un autre iPad, « Importer PhotoFinish » avec les fichiers HTML exportés." : "") });
     } else {
       list.push(film);
       list.push({ key: "notes", lane: "Classement", tool: "video", url: "./video/", cta: "Ouvrir PhotoFinish", title: "Classement et fiche résultats",
@@ -246,7 +249,7 @@
     if (pane === 3) {
       var c = H.classById(H.load(), d.classId);
       var fake = { id: "x", type: d.type, method: d.method, video: d.method !== "video" && d.video, classId: d.classId,
-        scanExerciseId: d.method === "chrono" || (d.method === "paper" && d.type === "ccf") ? "x" : null, done: {} };
+        scanExerciseId: d.method === "chrono" ? "x" : null, done: {} };
       var list = steps(fake);
       $("recapTitle").textContent = c.name + ", " + H.TYPES[d.type].label;
       $("recapLead").textContent = "Voici les " + list.length + " étapes. Chacune ouvre le bon outil, déjà réglé pour cette classe.";

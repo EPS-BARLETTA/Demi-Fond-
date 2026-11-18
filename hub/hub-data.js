@@ -292,7 +292,7 @@
     if (!c) throw new Error("Classe introuvable.");
     var s = { id: uid("se-"), classId: c.id, docsId: c.docsId || c.id, type: opts.type, method: opts.method, video: !!opts.video, date: today(), createdAt: Date.now(), done: {} };
     // Une séance et un exercice prêts dans Scan CCF, pour scanner les QR au bon endroit
-    if (opts.method === "chrono" || (opts.method === "paper" && opts.type === "ccf")) {
+    if (opts.method === "chrono") {
       var db = syncScan(c);
       var g = db.groups.find(function (x) { return x.id === c.id; });
       var lessonId = uid(), exId = uid();

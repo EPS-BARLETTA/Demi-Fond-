@@ -352,3 +352,10 @@ table.ctl tr.warn { background: #f7f4fd; }
 .remind p { margin: 2px 0 0; }
 .past-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .tool-tile.filebtn { cursor: pointer; }
+.pick-list { display: grid; gap: 8px; }
+.pick-row { display: grid; grid-template-columns: 72px 1fr; gap: 12px; align-items: center; text-align: left; padding: 8px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.pick-row .thumb { width: 72px; height: 54px; }
+.pick-row strong { display: block; font-variant-numeric: tabular-nums; }
+.pick-row small { color: var(--muted); font-size: 14px; }
+.fixes-box { margin: 0 0 12px; }
+.fix-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line-2); color: var(--ink); }

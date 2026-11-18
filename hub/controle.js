@@ -130,9 +130,11 @@
   }
   $("pfFiles").addEventListener("change", function (e) {
     var files = [].slice.call(e.target.files || []); e.target.value = "";
-    var n = 0;
+    var n = 0, scanFiles = 0, scanAdded = 0;
     files.reduce(function (ch, f) {
       return ch.then(function () { return f.text(); }).then(function (txt) {
+        var bk = txt.match(/<script id="demifond-archive-data" type="application\/json">([\s\S]*?)<\/script>/);
+        if (bk) { try { scanAdded += mergeScanBackup(JSON.parse(bk[1])); scanFiles++; } catch (err) {} return; }
         var co = parsePF(txt, f.name); if (!co.arrivals.length) return;
         var cache = {};
         return co.arrivals.reduce(function (c2, a) {
@@ -145,20 +147,49 @@
       }).catch(function () {});
     }, Promise.resolve()).then(function () {
       saveImported();
-      $("pfStatus").textContent = n ? n + " course" + (n > 1 ? "s" : "") + " PhotoFinish importée" + (n > 1 ? "s" : "") + "." : files.length ? "Ces courses étaient déjà importées." : "Aucune course reconnue : choisis les fichiers HTML exportés par PhotoFinish (course_….html).";
+      if (scanFiles) loadScan();
+      var msg = [];
+      if (scanFiles) msg.push("Sauvegarde Scan CCF importée : " + (scanAdded ? scanAdded + " résultats d’élèves ajoutés." : "ces résultats étaient déjà là."));
+      if (msg.length && !n) { $("pfStatus").textContent = msg.join(" "); refresh(); return; }
+      $("pfStatus").textContent = (msg.length ? msg.join(" ") + " " : "") + (n ? n + " course" + (n > 1 ? "s" : "") + " PhotoFinish importée" + (n > 1 ? "s" : "") + "." : files.length ? "Ces courses étaient déjà importées." : "Aucune course reconnue : choisis les fichiers HTML exportés par PhotoFinish (course_….html).");
       refresh();
     });
   });
 
   /* ---------- Scan CCF (QR Chrono Carnet, estimations annoncées) ---------- */
-  var scan = H.readJSON("df-scan-ccf-v2", null);
-  var grp = scan && scan.groups.find(function (g) { return g.id === c.id; });
-  var ex = grp && s.scanExerciseId && grp.sessions.find(function (x) { return x.id === s.scanExerciseId; });
-  // Résultats scannés dans un autre exercice de la classe (même jour) : on prend celui qui contient des élèves
-  var exChoices = grp ? grp.sessions.filter(function (x) { return (x.students || []).length && (!s.date || x.lessonDate === s.date); }) : [];
-  if (!exChoices.length && grp) exChoices = grp.sessions.filter(function (x) { return (x.students || []).length; })
-    .sort(function (a, b) { return String(a.lessonDate || "").localeCompare(String(b.lessonDate || "")) || (a.createdAt || 0) - (b.createdAt || 0); });
-  if ((!ex || !(ex.students || []).length) && exChoices.length) ex = exChoices[exChoices.length - 1];
+  // La classe peut exister dans Scan CCF sous un autre identifiant (créée avant, ou venue d'une sauvegarde) :
+  // on prend tous les groupes Scan CCF de même identifiant ou de même nom.
+  var ex = null;
+  function loadScan() {
+    var scan = H.readJSON("df-scan-ccf-v2", null), all = [];
+    (scan && scan.groups || []).forEach(function (g) {
+      if (g.id === c.id || H.norm(g.name) === H.norm(c.name)) (g.sessions || []).forEach(function (x) { all.push(x); });
+    });
+    ex = s.scanExerciseId ? all.find(function (x) { return x.id === s.scanExerciseId; }) : null;
+    var withData = all.filter(function (x) { return (x.students || []).length; });
+    var sameDay = withData.filter(function (x) { return x.lessonDate === s.date; });
+    var pool = (sameDay.length ? sameDay : withData).sort(function (a2, b2) { return String(a2.lessonDate || "").localeCompare(String(b2.lessonDate || "")) || (a2.createdAt || 0) - (b2.createdAt || 0); });
+    if ((!ex || !(ex.students || []).length) && pool.length) ex = pool[pool.length - 1];
+  }
+  loadScan();
+  // Sauvegarde HTML de Scan CCF (fichier « DemiFond_Classe_date.html ») : les résultats sont ajoutés à Scan CCF
+  function mergeScanBackup(data) {
+    var db = H.readJSON("df-scan-ccf-v2", null) || { groups: [], activeGroupId: null, activeSessionId: null, history: [], trainingScans: [], settings: {} };
+    var n = 0;
+    (data.groups || []).forEach(function (bg) {
+      var g = db.groups.find(function (x) { return x.id === bg.id; }) || db.groups.find(function (x) { return H.norm(x.name) === H.norm(bg.name); });
+      if (!g) { db.groups.push(bg); (bg.sessions || []).forEach(function (x) { n += (x.students || []).length; }); return; }
+      (bg.sessions || []).forEach(function (x) {
+        var i = g.sessions.findIndex(function (y) { return y.id === x.id; });
+        if (i < 0) { g.sessions.push(x); n += (x.students || []).length; }
+        else if ((x.students || []).length > (g.sessions[i].students || []).length) { g.sessions[i] = x; n += x.students.length; }
+      });
+      if (!g.rosterPronote && bg.rosterPronote) g.rosterPronote = bg.rosterPronote;
+    });
+    if (data.settings && data.settings.exam500Bareme) { db.settings = db.settings || {}; if (!db.settings.exam500Bareme) db.settings.exam500Bareme = data.settings.exam500Bareme; }
+    H.writeJSON("df-scan-ccf-v2", db);
+    return n;
+  }
   function scanStudent(e) {
     if (!ex) return null;
     var id = H.stdId(e.last, e.first, e.cls || c.name);
@@ -289,7 +320,7 @@
     var anyOwn = rows.some(function (x) { return x.races.some(function (r) { return r.own != null; }); });
     var anyVid = rows.some(function (x) { return x.races.some(function (r) { return r.v; }); });
     var why = "";
-    if (!anyOwn && s.method === "chrono") why = "<h3>Pas encore de résultats d’élèves à comparer</h3><p>Seules les vidéos sont affichées. Les temps des élèves arrivent quand tu scannes leurs QR codes de fin (étape « Récupérer les résultats »). Résultats scannés sur un autre iPad : dans Scan CCF, « Mes sauvegardes », importe le fichier HTML de sauvegarde de la classe.</p>";
+    if (!anyOwn && s.method === "chrono") why = "<h3>Pas encore de résultats d’élèves à comparer</h3><p>Seules les vidéos sont affichées. Les temps des élèves arrivent quand tu scannes leurs QR codes de fin (étape « Récupérer les résultats »). Résultats scannés sur un autre iPad : touche « Importer des fichiers » ci-dessous et choisis la sauvegarde Scan CCF de la classe (fichier « DemiFond_… .html »).</p>";
     else if (!anyOwn && s.method === "paper") why = "<h3>Pas encore de fiches lues</h3><p>Photographie les fiches remplies pour comparer leurs temps aux vidéos.</p>";
     else if (anyOwn && !anyVid) why = "<h3>Pas encore de vidéo à comparer</h3><p>Filme les arrivées avec PhotoFinish sur cet iPad, ou importe les fichiers HTML des courses filmées sur un autre iPad.</p>";
     $("why").innerHTML = why ? '<div class="notice">' + why + "</div>" : "";
@@ -405,7 +436,7 @@
   if (s.method === "paper") how.push("temps écrit sur la fiche");
   $("explain").textContent = "Chaque " + (how[0] || "temps relevé") + " est comparé à l’arrivée filmée avec PhotoFinish : conforme à 2 secondes près." +
     (s.method === "paper" && s.type === "ccf" ? " L’estimation écrite sur la fiche est comparée à celle annoncée et notée dans Scan CCF." : "") +
-    " Les courses PhotoFinish du jour sont prises dans l’ordre : la 1re course filmée d’un élève est sa course 1. Une arrivée attribuée au mauvais élève ? Touche sa photo pour la corriger.";
+    " Les courses PhotoFinish du jour sont prises dans l’ordre : la 1re course filmée d’un élève est sa course 1. Une arrivée attribuée au mauvais élève ? Touche sa photo pour la corriger. « Importer des fichiers » accepte les courses PhotoFinish (course_….html) et la sauvegarde Scan CCF de la classe (DemiFond_….html).";
 
   var rows = [], sd = null;
   function refresh() { buildVideo(); rows = build(sd); render(rows); }

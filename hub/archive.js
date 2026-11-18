@@ -34,7 +34,7 @@
   /* ---------- ce qui appartient à une séance ---------- */
   function scanPart(s, c) {
     var db = H.readJSON("df-scan-ccf-v2", null);
-    var g = db && db.groups.find(function (x) { return x.id === c.id; });
+    var g = db && (db.groups.find(function (x) { return x.id === c.id; }) || db.groups.find(function (x) { return norm(x.name) === norm(c.name) && x.sessions.some(function (e) { return e.lessonDate === s.date && (e.students || []).length; }); }));
     if (!g) return null;
     var ex = g.sessions.filter(function (x) { return x.id === s.scanExerciseId || (x.lessonDate === s.date && (x.students || []).length); });
     if (!ex.length) return null;

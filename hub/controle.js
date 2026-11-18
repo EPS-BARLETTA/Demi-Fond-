@@ -239,7 +239,8 @@
       raw.forEach(function (v) { if (v.race && vids[v.race - 1] === v) return; var i = 0; while (vids[i]) i++; vids[i] = v; });
       var holes = vids.map(function (v) { return v && v.hole ? v : null; });
       vids = vids.map(function (v) { return v && v.hole ? null : v; });
-      var n = Math.max(N, vids.length);
+      var lastReal = 0; vids.forEach(function (v, i) { if (v) lastReal = i + 1; });
+      var n = Math.max(N, lastReal);
       for (var k = 1; k <= n; k++) {
         var r = { k: k, sid: e.id, v: vids[k - 1] || null, hole: holes[k - 1] || null, own: null, ownSrc: "", est: null, said: null };
         if (s.method === "chrono" && st) {
@@ -303,7 +304,11 @@
       '<span class="pill">' + nMiss + " sans donnée à comparer</span>" + '<span class="pill">' + courses.length + " course" + (courses.length > 1 ? "s" : "") + " PhotoFinish</span>";
     var list = rows.filter(function (x) { return filter === "all" || x.warn; });
     var head = "<tr><th>Élève</th>";
-    for (var k = 1; k <= N; k++) head += "<th>" + (s.type === "ccf" ? (k === 1 ? "1er" : "2e") + " 800 m" : "Course " + k) + "</th>";
+    for (var k = 1; k <= N; k++) {
+      var extra = races() && k > races();
+      head += "<th>" + (s.type === "ccf" && k <= 2 ? (k === 1 ? "1er" : "2e") + " 800 m" : "Course " + k) +
+        (extra ? '<br><span class="col-extra">En trop</span> <button type="button" class="btn line small" data-dropcol="' + k + '">Retirer la colonne</button>' : "") + "</th>";
+    }
     $("table").innerHTML = list.length ? '<div class="tablewrap"><table class="ctl"><thead>' + head + "</tr></thead><tbody>" + list.map(function (x) {
       var cells = "";
       for (var k = 0; k < N; k++) cells += x.races[k] ? cell(x.races[k]) : '<td><span class="muted">—</span></td>';
@@ -422,6 +427,16 @@
   $("table").addEventListener("click", function (e) {
     var pk = e.target.closest(".fixbtn.pick"); if (pk) { openPick(pk.dataset.sid, +pk.dataset.k, pk.dataset.own === "" ? null : +pk.dataset.own); return; }
     var un = e.target.closest("[data-unfix]"); if (un) { fixing = un.dataset.unfix; saveFix(""); return; }
+    var dc = e.target.closest("[data-dropcol]");
+    if (dc) {
+      var k = +dc.dataset.dropcol, fks = [];
+      rows.forEach(function (x) { var r = x.races[k - 1]; if (r && r.v) fks.push(r.v.fix); });
+      if (!fks.length) return;
+      if (!confirm("Retirer la colonne « Course " + k + " » ? " + fks.length + " vidéo" + (fks.length > 1 ? "s" : "") + " ne seront plus comptées.\nTu peux annuler dans « Mes corrections ».")) return;
+      var hh = H.load(), ss = hh.sessions.find(function (y) { return y.id === s.id; }); if (!ss) return;
+      ss.pfFix = ss.pfFix || {}; fks.forEach(function (fk) { ss.pfFix[fk] = "none"; });
+      H.save(hh); s.pfFix = ss.pfFix; refresh(); return;
+    }
     var b = e.target.closest(".thumb, .fixbtn"); if (!b || !b.dataset.fix) return;
     var cellEl = b.closest(".rc"), th = cellEl && cellEl.querySelector(".thumb img");
     fixing = b.dataset.fix; fixingRace = +b.dataset.k || null; fixingSid = b.dataset.sid;

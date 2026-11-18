@@ -368,3 +368,5 @@ table.ctl tr.warn { background: #f7f4fd; }
 .who-btn img, .who-btn .nophoto { width: 40px; height: 46px; border-radius: 8px; object-fit: cover; }
 .who-btn .nophoto { display: grid; place-items: center; background: var(--line-2); color: var(--muted); font-weight: 800; }
 .who-btn strong { font-weight: 750; }
+.col-extra { color: var(--amber); font-weight: 750; text-transform: none; }
+table.ctl thead th .btn { margin-top: 4px; }

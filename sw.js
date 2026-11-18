@@ -1,10 +1,10 @@
 /* Service worker de l'accueil uniquement.
    Les trois outils (scan/, video/, chrono/) ont chacun le leur, à leur propre portée. */
-const CACHE = "eps-hub-v12";
+const CACHE = "eps-hub-v13";
 const FILES = [
   "./",
   "./index.html",
-  "./hub.css?v=10",
+  "./hub.css?v=11",
   "./hub/hub-data.js?v=4",
   "./hub/prenoms.js?v=1",
   "./hub/trombi.js?v=1",

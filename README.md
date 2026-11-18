@@ -43,3 +43,10 @@ Les photos sont rattachées aux élèves de la liste par le nom lu sous la photo
 
 ## Mémoire
 Scan CCF garde ses copies de secours (3 versions + avant import) dans IndexedDB et non plus dans localStorage. L’onglet Outils affiche la mémoire utilisée par chaque outil.
+
+## Séance libre (entraînement)
+
+Dans « Nouvelle séance », **Séance libre** : l'enseignant écrit ses courses (`4x100`, `500 1000 500`, `1000`…) et, s'il veut, un temps de passage tous les … m.
+
+- **Sur iPad** : Chrono Carnet s'ouvre déjà réglé sur ces courses ; le contrôle compare chaque course à PhotoFinish (2 s).
+- **Sur fiche** : on choisit la fiche à imprimer, soit une fiche faite automatiquement avec les courses (une partie par course, passages cumulés, ligne « Estimation » en option, aperçu dans l'assistant), soit une fiche de ScanDocument (Mission 1000 pour les 6e, 3 × 500, 2 × 800, ou les fiches créées par l'enseignant). Pour un 1000 m avec passage à 500 m, la fiche Mission 1000 (S5 · S6) est proposée d'office.

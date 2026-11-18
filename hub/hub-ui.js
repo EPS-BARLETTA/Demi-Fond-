@@ -20,7 +20,7 @@
      Étapes d'une séance
   ========================================================= */
   function steps(s) {
-    var T = H.TYPES[s.type], cid = encodeURIComponent(s.docsId || s.classId), tpl = T.sheet ? "&tpl=" + T.sheet : "";
+    var T = H.TYPES[s.type], cid = encodeURIComponent(s.docsId || s.classId), tplId = s.sheet || T.sheet, tpl = tplId ? "&tpl=" + encodeURIComponent(tplId) : "";
     var sid = encodeURIComponent(s.id), graded = s.type !== "training", ex = encodeURIComponent(s.scanExerciseId || "");
     var film = { key: "film", lane: "Vidéo", tool: "video", go: "film", url: "./video/?hub=film", cta: "Ouvrir PhotoFinish", title: "Filmer les arrivées",
       you: "La classe et ses groupes sont déjà chargés dans PhotoFinish. Une course filmée par groupe : DÉPART au signal, un appui sur ARRIVÉE par élève. Ensuite, associe chaque photo d’arrivée à un élève.",
@@ -43,7 +43,7 @@
       list.push({ key: "notes", lane: graded ? "Notes" : "Résultats", tool: "scan", go: "results", ex: s.scanExerciseId, url: "./scan/?hub=results&ex=" + ex, cta: graded ? "Voir les notes" : "Voir les résultats", title: graded ? "Voir les notes" : "Voir les résultats",
         you: graded ? "En haut, les élèves pas encore scannés et les anomalies. Touche un élève pour voir le détail et sa note." : "Temps, allures et progrès de chaque élève." });
     } else if (s.method === "paper") {
-      var fiche = { cls: s.docsId || s.classId, tpl: T.sheet };
+      var fiche = { cls: s.docsId || s.classId, tpl: tplId };
       list.push({ key: "print", lane: "Fiches", tool: "docs", go: "prep", cls: fiche.cls, tpl: fiche.tpl, url: "./docs/?hub=prep&class=" + cid + tpl, cta: "Préparer l’impression", title: "Imprimer les fiches",
         you: "Une fiche par élève, avec son nom et un QR code. La classe" + (T.sheet ? " et la fiche sont déjà choisies" : " est déjà choisie, choisis la fiche") + " : imprime ou télécharge le PDF." });
       if (graded) list.push({ key: "est", lane: "Estimations", tool: "docs", go: "ann", cls: fiche.cls, tpl: fiche.tpl, url: "./docs/?hub=ann&class=" + cid + tpl, cta: "Noter les estimations", title: "Noter les estimations annoncées",
@@ -54,8 +54,9 @@
         you: "Prends chaque fiche en entier, à plat, les quatre carrés visibles. Elles sont lues toutes seules ; celles qui posent question restent à vérifier." });
       list.push({ key: "notes", lane: graded ? "Contrôle et notes" : "Résultats", tool: "docs", go: "control", cls: fiche.cls, tpl: fiche.tpl, url: "./docs/?hub=control&class=" + cid + tpl,
         cta: graded ? "Contrôler et noter" : "Voir les résultats", title: graded ? "Contrôler les fiches et noter" : "Voir les résultats",
-        you: "Les résultats des fiches s’ouvrent avec le contrôle : en rouge, les estimations différentes de celles annoncées" + (s.video ? " et les temps à plus de 2 s de PhotoFinish, avec la photo d’arrivée" : "") +
-          ". Pour chaque alerte, garde la fiche ou prends la bonne valeur, puis exporte les notes." +
+        you: (graded ? "Les résultats des fiches s’ouvrent avec le contrôle : sont signalées les estimations différentes de celles annoncées" + (s.video ? " et les temps à plus de 2 s de PhotoFinish, avec la photo d’arrivée" : "")
+            : "Les temps lus sur les fiches, course par course" + (s.video ? ", comparés à PhotoFinish : un écart de plus de 2 s est signalé avec la photo d’arrivée" : "")) +
+          (graded ? ". Pour chaque alerte, garde la fiche ou prends la bonne valeur, puis exporte les notes." : ". Pour chaque alerte, garde la fiche ou prends la valeur de PhotoFinish.") +
           (s.video ? " Les courses filmées sur cet iPad sont ajoutées toutes seules ; pour un autre iPad, « Importer PhotoFinish » avec les fichiers HTML exportés." : "") });
     } else {
       list.push(film);
@@ -233,18 +234,63 @@
   function openWizard() {
     var h = H.load();
     if (!h.classes.length) return openClass(null, true);
-    $("wizForm").reset(); pane = 0; $("wizPlanText").value = ""; $("wizPlanSplit").value = "";
+    $("wizForm").reset(); pane = 0; $("wizPlanText").value = ""; $("wizPlanSplit").value = ""; sheetKey = ""; $("wizSheetList").innerHTML = "";
+    H.docsSheets().then(function (l) { ownSheets = l; if (!$("wizSheet").hidden) renderSheets(wizData()); });
     $("wizClasses").innerHTML = sortClasses(h.classes).map(function (c) {
       return '<label><input type="radio" name="classId" value="' + esc(c.id) + '"' + (h.classes.length === 1 ? " checked" : "") + '><span class="opt"><strong>' + esc(c.name) + "</strong><small>" + plural(c.students.length, "élève") + "</small></span></label>";
     }).join("");
     showPane(); $("wiz").showModal();
   }
+  function sheetName(d) { if (d.sheet === "plan" && d.plan) return H.planSheet(d.plan, d.sheetEst).name; var i = document.querySelector('#wizSheetList input[name=sheet]:checked'); return i ? i.dataset.name : ""; }
   function wizData() {
     var f = $("wizForm");
     var txt = $("wizPlanText").value.trim(), dist = txt ? H.parsePlan(txt) : null, split = Math.max(0, Math.round(+$("wizPlanSplit").value || 0));
     return { classId: (f.querySelector("input[name=classId]:checked") || {}).value, type: (f.querySelector("input[name=type]:checked") || {}).value,
       method: (f.querySelector("input[name=method]:checked") || {}).value, video: f.video.checked,
-      planText: txt, plan: dist ? { distances: dist, split: split } : null };
+      planText: txt, plan: dist ? { distances: dist, split: split } : null,
+      sheet: (f.querySelector("input[name=sheet]:checked") || {}).value, sheetEst: f.sheetEst.checked };
+  }
+  /* Séance libre sur fiche : choix de la fiche, aperçu de celle faite avec les courses */
+  var ownSheets = [], sheetKey = "", ficheLib = null;
+  function loadFiche() {
+    if (ficheLib) return ficheLib;
+    var add = function (src) { return new Promise(function (res, rej) { var sc = document.createElement("script"); sc.src = src; sc.onload = res; sc.onerror = rej; document.head.appendChild(sc); }); };
+    ficheLib = add("./docs/lib/qrcode.js").then(function () { return add("./docs/fiche.js"); }).catch(function () { ficheLib = null; });
+    return ficheLib;
+  }
+  function sheetLayout(d) { return d.plan && window.Fiche ? window.Fiche.layoutFor(H.planSheet(d.plan, d.sheetEst)) : null; }
+  function sheetProblem(d) {
+    if (d.sheet !== "plan" || !d.plan) return "";
+    if (Math.max.apply(null, d.plan.distances) > 2500) return "Sur fiche, un temps s’écrit jusqu’à 9:59 : pour plus de 2500 m, prends Chrono Carnet.";
+    var l = sheetLayout(d);
+    return l && !l.ok ? "Trop de lignes pour une seule fiche : enlève des temps de passage ou des courses." : "";
+  }
+  function renderSheets(d) {
+    var list = [];
+    if (d.plan) list.push({ id: "plan", name: "Une fiche faite avec tes courses", desc: H.planLabel(d.plan.distances) + (d.plan.split ? ", passages tous les " + d.plan.split + " m" : "") + "." });
+    list = list.concat(H.SHEET_LIB, ownSheets.map(function (x) { return { id: x.id, name: x.name, desc: "Ta fiche · " + x.desc }; }));
+    var key = JSON.stringify(list), cur = d.sheet;
+    if (key !== sheetKey) {
+      sheetKey = key;
+      if (!cur || !list.some(function (x) { return x.id === cur; })) cur = H.suggestSheet(d.plan);
+      $("wizSheetList").innerHTML = list.map(function (x) {
+        return '<label><input type="radio" name="sheet" value="' + esc(x.id) + '"' + (x.id === cur ? " checked" : "") + ' data-name="' + esc(x.name) + '"><span class="opt"><strong>' + esc(x.name) + "</strong><small>" + esc(x.desc) + "</small></span></label>";
+      }).join("");
+      d = wizData();
+    }
+    var mine = d.sheet === "plan";
+    $("wizSheetEst").hidden = !mine;
+    var pb = sheetProblem(d), sug = H.suggestSheet(d.plan);
+    $("wizSheetInfo").textContent = pb || (mine ? "Une partie par course. Les temps sont cumulés : le chrono ne s’arrête pas aux passages." :
+      d.sheet && sug && sug === d.sheet ? "Cette fiche correspond déjà à tes courses." : d.sheet ? "Fiche de ScanDocument, déjà prête." : "Choisis la fiche que les élèves rempliront.");
+    $("wizSheetPrev").hidden = !mine;
+    if (mine) {
+      if (!window.Fiche) { $("wizSheetPrev").innerHTML = ""; loadFiche() && loadFiche().then(function () { if (!$("wizSheet").hidden) renderSheets(wizData()); }); }
+      else {
+        var t = H.planSheet(d.plan, d.sheetEst), l = window.Fiche.layoutFor(t);
+        $("wizSheetPrev").innerHTML = l.ok ? window.Fiche.ficheSVG({ tpl: t, name: "NOM Prénom", className: (H.classById(H.load(), d.classId) || {}).name || "Classe", payload: window.Fiche.studentPayload("apercu", t.id), layout: l }) : "";
+      }
+    }
   }
   function planInfo() {
     var d = wizData();
@@ -265,9 +311,13 @@
     $("wizVideoOnly").hidden = !training;
     if (!training && d.method === "video") { $("wizForm").querySelector("input[name=method][value=video]").checked = false; d.method = undefined; }
     $("wizVideoOpt").hidden = d.method === "video";
+    var paperFree = training && d.method === "paper";
+    $("wizSheet").hidden = !paperFree;
+    if (paperFree && pane === 2) { renderSheets(d); d = wizData(); }
     if (pane === 3) {
       var c = H.classById(H.load(), d.classId);
       var fake = { id: "x", type: d.type, method: d.method, video: d.method !== "video" && d.video, classId: d.classId, plan: d.type === "training" ? d.plan : null,
+        sheet: paperFree ? (d.sheet === "plan" && d.plan ? H.planSheet(d.plan, d.sheetEst).id : d.sheet) : null, sheetName: paperFree ? sheetName(d) : "",
         scanExerciseId: d.method === "chrono" ? "x" : null, done: {} };
       var list = steps(fake);
       $("recapTitle").textContent = c.name + ", " + H.typeLabel(fake);
@@ -283,6 +333,10 @@
     if (pane === 1 && !d.type) { $("wizErr").textContent = "Choisis l’épreuve."; return; }
     if (pane === 1 && d.type === "training" && d.planText && !d.plan) { $("wizErr").textContent = "Écris les courses comme « 4x100 » ou « 500 1000 500 », ou laisse vide pour un chrono libre."; return; }
     if (pane === 2 && !d.method) { $("wizErr").textContent = "Choisis qui prend les temps."; return; }
+    if (pane === 2 && d.type === "training" && d.method === "paper") {
+      if (!d.sheet) { $("wizErr").textContent = "Choisis la fiche que les élèves rempliront."; return; }
+      var pb = sheetProblem(d); if (pb) { $("wizErr").textContent = pb; return; }
+    }
     pane++; showPane();
   };
   $("wizPrev").onclick = function () { pane = Math.max(0, pane - 1); showPane(); };
@@ -293,7 +347,8 @@
     var go = function () {
       var hh = H.load(), cc = H.classById(hh, d.classId);
       H.syncClass(cc).then(function () {
-        H.startSession(hh, { classId: d.classId, type: d.type, method: d.method, video: d.video && d.method !== "video", plan: d.type === "training" ? d.plan : null });
+        H.startSession(hh, { classId: d.classId, type: d.type, method: d.method, video: d.video && d.method !== "video", plan: d.type === "training" ? d.plan : null,
+          sheet: d.type === "training" && d.method === "paper" ? d.sheet : null, sheetEst: d.sheetEst, sheetName: sheetName(d) });
         $("wiz").close(); sel = null;
         if (location.hash !== "#seance") location.hash = "#seance"; else route();
       }).catch(function (err) { $("wizErr").textContent = err.message; });

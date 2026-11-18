@@ -11,7 +11,7 @@
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./apple-touch-icon.png">
 <link rel="icon" href="./icon-192.png">
-<link rel="stylesheet" href="./hub.css?v=12">
+<link rel="stylesheet" href="./hub.css?v=13">
 <title>Demi-fond EPS</title>
 </head>
 <body>
@@ -79,6 +79,13 @@
           <label><input type="radio" name="method" value="chrono"><span class="opt"><strong>Les élèves, sur iPad</strong><small>En binôme avec Chrono Carnet. À la fin, tu scannes le QR code de chaque élève.</small><span class="need">Il faut : un iPad par binôme</span></span></label>
           <label><input type="radio" name="method" value="paper"><span class="opt"><strong>Les élèves, sur fiche</strong><small>Fiches imprimées à remplir, puis tu les photographies : elles sont lues toutes seules.</small><span class="need">Il faut : les fiches imprimées, des crayons</span></span></label>
           <label id="wizVideoOnly"><input type="radio" name="method" value="video"><span class="opt"><strong>Moi, en filmant</strong><small>PhotoFinish sur la ligne d’arrivée : classement et temps, sans note.</small><span class="need">Il faut : ton iPad</span></span></label>
+        </div>
+        <div class="plan sheetpick" id="wizSheet" hidden>
+          <h3>Quelle fiche imprimer ?</h3>
+          <div class="choice sheets" id="wizSheetList" role="radiogroup"></div>
+          <label class="toggle" id="wizSheetEst"><input type="checkbox" name="sheetEst"><span><strong>Une ligne « Estimation » avant chaque course</strong><small>L’élève écrit le temps qu’il prévoit, la fiche montre ensuite l’écart.</small></span></label>
+          <p class="hint" id="wizSheetInfo"></p>
+          <div class="sheet-prev" id="wizSheetPrev" aria-label="Aperçu de la fiche"></div>
         </div>
         <label class="toggle" id="wizVideoOpt"><input type="checkbox" name="video"><span><strong>Filmer aussi l’arrivée avec PhotoFinish</strong><small>Pour contrôler les temps des élèves à 2 secondes près, avec la photo de chaque arrivée.</small></span></label>
       </div>
@@ -199,10 +206,10 @@
 </dialog>
 
 <script src="./chrono/js/qrcode.min.js?v=1"></script>
-<script src="./hub/hub-data.js?v=5"></script>
+<script src="./hub/hub-data.js?v=6"></script>
 <script src="./hub/prenoms.js?v=1"></script>
 <script src="./hub/trombi.js?v=1"></script>
 <script src="./hub/archive.js?v=3"></script>
-<script src="./hub/hub-ui.js?v=8"></script>
+<script src="./hub/hub-ui.js?v=9"></script>
 </body>
 </html>

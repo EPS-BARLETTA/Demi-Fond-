@@ -1,23 +1,25 @@
 /* Service worker de l'accueil uniquement.
    Les trois outils (scan/, video/, chrono/) ont chacun le leur, à leur propre portée. */
-const CACHE = "eps-hub-v15";
+const CACHE = "eps-hub-v16";
 const FILES = [
   "./",
   "./index.html",
-  "./hub.css?v=12",
-  "./hub/hub-data.js?v=5",
+  "./hub.css?v=13",
+  "./hub/hub-data.js?v=6",
   "./hub/prenoms.js?v=1",
   "./hub/trombi.js?v=1",
   "./hub/archive.js?v=3",
-  "./hub/hub-ui.js?v=8",
-  "./hub-home.js?v=4",
+  "./hub/hub-ui.js?v=9",
+  "./hub-home.js?v=5",
   "./manifest.webmanifest",
   "./icon-192.png",
   "./icon-512.png",
   "./apple-touch-icon.png",
   "./eleve/",
   "./eleve/index.html",
-  "./chrono/js/qrcode.min.js?v=1"
+  "./chrono/js/qrcode.min.js?v=1",
+  "./docs/lib/qrcode.js",
+  "./docs/fiche.js"
 ];
 const OWN = new Set(FILES.map(f => new URL(f, self.location).href));
 

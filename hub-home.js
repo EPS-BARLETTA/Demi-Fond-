@@ -151,6 +151,22 @@
     } catch (e) { return Promise.resolve(0); }
   }
 
+  /* Séance libre sur fiche : la fiche faite avec les courses (ou une fiche de la bibliothèque retirée) est ajoutée à ScanDocument. */
+  function ensureSheet(tpl) {
+    try {
+      if (!tpl || typeof tplById !== "function" || tplById(tpl)) return Promise.resolve();
+      var def = null, h = JSON.parse(localStorage.getItem("eps-hub-v1") || "{}");
+      (h.sessions || []).some(function (s) { if (s.sheetDef && s.sheetDef.id === tpl) { def = s.sheetDef; return true; } return false; });
+      if (!def && typeof LIBRARY !== "undefined") def = LIBRARY.find(function (l) { return l.id === tpl; }) || null;
+      if (!def) return Promise.resolve();
+      def = JSON.parse(JSON.stringify(def));
+      def.printedFor = []; def.createdAt = new Date().toISOString().slice(0, 10); def.lay = 2;
+      state.templates.push(def);
+      if (state.removedLib) state.removedLib = state.removedLib.filter(function (x) { return x !== tpl; });
+      return Promise.resolve(typeof persist === "function" ? persist() : null).catch(function () {});
+    } catch (e) { return Promise.resolve(); }
+  }
+
   function route(o) {
     o = o || order;
     if (!o || !o.go) return;
@@ -170,7 +186,7 @@
       });
     } else if (tool === "docs") {
       waitFor(function () { return typeof state !== "undefined" && state.templates && state.templates.length && typeof view === "function"; }, function () {
-        setTimeout(function () {
+        ensureSheet(tpl).then(function () { setTimeout(function () {
           // la fenêtre « Estimations annoncées » d'une étape précédente ne reste pas ouverte par-dessus
           if (go !== "ann" && typeof annRender === "function") { try { ann = null; annRender(); } catch (e) {} }
           if (go === "prep" && typeof openEval === "function") { openEval({ classId: cls || undefined, tplId: tpl || undefined }); toast("Classe et fiche déjà choisies : imprime ou télécharge les fiches."); }
@@ -185,7 +201,7 @@
               if (n) { if (typeof renderResults === "function") renderResults(); toast(n + " course" + (n > 1 ? "s" : "") + " PhotoFinish de cet iPad ajoutée" + (n > 1 ? "s" : "") + " au contrôle."); }
             });
           }
-        }, 200);
+        }, 200); });
       });
     } else if (tool === "video") {
       waitFor(function () { return document.getElementById("cvStart"); }, function () {

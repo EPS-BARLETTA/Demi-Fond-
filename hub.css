@@ -376,3 +376,13 @@ table.ctl thead th .btn { margin-top: 4px; }
 .plan-chips button[aria-pressed="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
 .field.split span { display: flex; align-items: center; gap: 8px; font-weight: 500; }
 .field.split input { width: 110px; display: inline-block; margin-top: 6px; }
+
+/* Séance libre sur fiche : choix de la fiche */
+.sheetpick h3 { margin: 0 0 12px; font-size: 17px; }
+.choice.sheets { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.choice.sheets .opt { padding: 12px 14px; }
+.choice.sheets .opt strong { font-size: 16px; }
+.sheetpick .toggle { background: #fff; }
+.sheet-prev { margin-top: 12px; }
+.sheet-prev:empty { display: none; }
+.sheet-prev svg { display: block; width: 100%; max-width: 360px; height: auto; margin: 0 auto; background: #fff; border-radius: 6px; box-shadow: 0 1px 0 var(--line), 0 6px 18px rgba(19, 35, 63, .12); }

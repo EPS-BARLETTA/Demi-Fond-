@@ -302,7 +302,60 @@
     while (i < list.length) { var j = i; while (j + 1 < list.length && list[j + 1] === list[i]) j++; var n = j - i + 1; parts.push(n > 1 ? n + " × " + list[i] : String(list[i])); i = j + 1; }
     return parts.join(" – ") + " m";
   }
-  function typeLabel(s) { return s.type === "training" && s.plan && s.plan.distances ? "Entraînement " + planLabel(s.plan.distances) : TYPES[s.type].label; }
+  function typeLabel(s) {
+    if (s.type !== "training") return TYPES[s.type].label;
+    if (s.plan && s.plan.distances) return "Entraînement " + planLabel(s.plan.distances);
+    return s.sheetName ? "Entraînement · " + s.sheetName : TYPES[s.type].label;
+  }
+
+  /* ---------- fiches papier de la séance libre ---------- */
+  // Fiches toutes prêtes de ScanDocument (mêmes identifiants que sa bibliothèque)
+  var SHEET_LIB = [
+    { id: "tm1000s", name: "Mission 1000 · 1000 m (S5 · S6)", desc: "Passage à 500 m et arrivée à 1000 m, grandes lignes, aide pour compter les tours." },
+    { id: "tm1000", name: "Mission 1000 · piste de 100 m", desc: "Tours faits, temps à 500 m et à 1000 m." },
+    { id: "t3x500", name: "Demi-fond 3 × 500 m", desc: "3 courses, estimation, passages à 250 et 500 m." },
+    { id: "t2x800", name: "Demi-fond 2 × 800 m", desc: "2 courses, estimation, passages tous les 200 m." }
+  ];
+  function hash(str) { var x = 2166136261; for (var i = 0; i < str.length; i++) { x ^= str.charCodeAt(i); x = Math.imul(x, 16777619); } return (x >>> 0).toString(16); }
+  // Fiche construite à partir des courses : une partie par course, une ligne par passage (temps cumulés) et l'arrivée.
+  function planSheet(plan, est) {
+    var dl = plan.distances, sp = +plan.split || 0, n = dl.length, longest = Math.max.apply(null, dl), rows = 0;
+    var blocks = dl.map(function (d, i) {
+      var r = [];
+      if (est) r.push({ id: "c" + (i + 1) + "e", label: "Estimation", type: "time" });
+      if (sp && sp < d) for (var k = sp; k < d; k += sp) r.push({ id: "c" + (i + 1) + "p" + k, label: k + " m", type: "time" });
+      r.push({ id: "c" + (i + 1) + "f", label: d + " m", type: "time" });
+      rows += r.length;
+      return { title: (n > 1 ? "Course " + (i + 1) + " · " : "") + d + " m", rows: r };
+    });
+    var name = "Entraînement " + planLabel(dl) + (sp ? " · passages " + sp + " m" : "") + (est ? " · estimation" : "");
+    return { id: "th-" + hash(dl.join(",") + "|" + sp + "|" + (est ? 1 : 0)), name: name, format: "auto", minutesMax: longest >= 1000 ? 9 : 5, cumulative: true,
+      roomy: rows <= 4 || undefined, lay: 2, blocks: blocks, fromHub: true };
+  }
+  function planRows(plan, est) { var sp = +plan.split || 0; return plan.distances.reduce(function (a, d) { return a + 1 + (est ? 1 : 0) + (sp && sp < d ? Math.ceil(d / sp) - 1 : 0); }, 0); }
+  // La fiche toute prête qui correspond déjà aux courses (1000 m avec passage à 500 m → Mission 1000)
+  function suggestSheet(plan) {
+    if (!plan) return null;
+    var d = plan.distances;
+    if (d.length === 1 && d[0] === 1000 && (+plan.split === 500)) return "tm1000s";
+    if (d.length === 3 && d.every(function (x) { return x === 500; }) && (+plan.split === 250)) return "t3x500";
+    if (d.length === 2 && d.every(function (x) { return x === 800; }) && (+plan.split === 200)) return "t2x800";
+    return "plan";
+  }
+  // Fiches créées par l'enseignant dans ScanDocument
+  function docsSheets() {
+    return sdOpen().then(function (db) {
+      return new Promise(function (res) {
+        var g = db.transaction("state").objectStore("state").get("data");
+        g.onsuccess = function () {
+          var t = (g.result && g.result.templates) || [];
+          res(t.filter(function (x) { return x && x.id && !SHEET_LIB.some(function (l) { return l.id === x.id; }) && !x.fromHub && (x.blocks || []).length; })
+            .map(function (x) { return { id: x.id, name: x.name, desc: x.blocks.length + " partie" + (x.blocks.length > 1 ? "s" : "") + " : " + x.blocks.map(function (b) { return b.title; }).join(", ") }; }));
+        };
+        g.onerror = function () { res([]); };
+      });
+    }).catch(function () { return []; });
+  }
 
   /* ---------- séance ---------- */
   function today() { var d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
@@ -313,6 +366,11 @@
     if (!c) throw new Error("Classe introuvable.");
     var s = { id: uid("se-"), classId: c.id, docsId: c.docsId || c.id, type: opts.type, method: opts.method, video: !!opts.video, date: today(), createdAt: Date.now(), done: {} };
     if (opts.type === "training" && opts.plan && opts.plan.distances && opts.plan.distances.length) s.plan = { distances: opts.plan.distances.slice(), split: +opts.plan.split || 0 };
+    // Séance libre sur fiche : la fiche choisie, ou celle construite avec les courses
+    if (opts.type === "training" && opts.method === "paper" && opts.sheet) {
+      if (opts.sheet === "plan" && s.plan) { var def = planSheet(s.plan, !!opts.sheetEst); s.sheet = def.id; s.sheetName = def.name; s.sheetDef = def; }
+      else { s.sheet = opts.sheet; s.sheetName = opts.sheetName || ""; }
+    }
     // Une séance et un exercice prêts dans Scan CCF, pour scanner les QR au bon endroit
     if (opts.method === "chrono") {
       var db = syncScan(c);
@@ -380,7 +438,7 @@
   }
 
   global.EPSHub = {
-    TYPES: TYPES, METHODS: METHODS, parsePlan: parsePlan, planLabel: planLabel, typeLabel: typeLabel, load: load, save: save, current: current, classById: classById,
+    TYPES: TYPES, METHODS: METHODS, parsePlan: parsePlan, planLabel: planLabel, typeLabel: typeLabel, SHEET_LIB: SHEET_LIB, planSheet: planSheet, planRows: planRows, suggestSheet: suggestSheet, docsSheets: docsSheets, load: load, save: save, current: current, classById: classById,
     readRoster: readRoster, upsertClass: upsertClass, syncClass: syncClass, syncAll: syncAll,
     foundInTools: foundInTools, foundInDocs: foundInDocs, startSession: startSession,
     encodeRoster: encodeRoster, decodeRoster: decodeRoster, photosGet: photosGet, photosPut: photosPut, validPhoto: validPhoto,

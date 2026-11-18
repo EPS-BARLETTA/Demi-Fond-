@@ -78,11 +78,14 @@
     var keys = {}; localCourses.forEach(function (co) { keys[co.key] = 1; });
     courses = localCourses.concat(imported.filter(function (co) { return !keys[co.key]; })).sort(function (x, y) { return x.date - y.date; });
     video = {}; unknown = [];
+    var fixes = s.pfFix || {};
     courses.forEach(function (co, ci) {
       co.arrivals.forEach(function (a, ai) {
-        if (!a.name || /^non nomm/i.test(a.name)) return;
-        var e = matchStudent(a.name);
-        var rec = { t: a.t, pid: a.pid, src: a.src, course: ci, rank: ai + 1, title: co.title, group: co.group };
+        var fk = co.key + "|" + (co.group || "") + "|" + ai, fix = fixes[fk];
+        if (fix === "none") return;                       // arrivée écartée à la main
+        if (!fix && (!a.name || /^non nomm/i.test(a.name))) return;
+        var e = fix ? c.students.find(function (x) { return x.id === fix; }) : matchStudent(a.name);
+        var rec = { t: a.t, pid: a.pid, src: a.src, course: ci, rank: ai + 1, title: co.title, group: co.group, fix: fk, pfName: a.name || "", manual: !!fix };
         if (!e) { unknown.push(Object.assign({ name: a.name }, rec)); return; }
         (video[e.id] = video[e.id] || []).push(rec);
       });
@@ -192,7 +195,7 @@
       var vids = video[e.id] || [];
       var n = Math.max(N, vids.length);
       for (var k = 1; k <= n; k++) {
-        var r = { k: k, v: vids[k - 1] || null, own: null, ownSrc: "", est: null, said: null };
+        var r = { k: k, sid: e.id, v: vids[k - 1] || null, own: null, ownSrc: "", est: null, said: null };
         if (s.method === "chrono" && st) {
           if (s.type === "ccf" && st.races && st.races[k]) { r.own = ms(st.races[k].totalMs); r.est = st.races[k].project || null; }
           if (s.type === "exam500" && st.exam500 && st.exam500.races) {
@@ -223,12 +226,13 @@
   function cell(r) {
     var parts = [];
     var v = r.v;
-    if (v) parts.push('<button type="button" class="thumb" data-pid="' + esc(v.pid || "") + '" data-src="' + esc(v.src || "") + '" data-txt="' + esc("Course " + r.k + " · arrivée n°" + v.rank + " · " + fmt(v.t, true)) + '" aria-label="Photo d’arrivée"><img alt=""></button>');
+    var fixAttrs = v ? ' data-fix="' + esc(v.fix) + '" data-sid="' + esc(r.sid) + '" data-pf="' + esc(v.pfName) + '" data-txt="' + esc("Course " + r.k + ", arrivée n° " + v.rank + ", " + fmt(v.t, true)) + '"' : "";
+    if (v) parts.push('<button type="button" class="thumb" data-pid="' + esc(v.pid || "") + '" data-src="' + esc(v.src || "") + '"' + fixAttrs + ' aria-label="Photo d’arrivée, corriger l’élève"><img alt=""></button>');
     var lines = [];
     if (r.own != null || v) {
       var cls = r.timeOk === true ? "ok" : r.timeOk === false ? "bad" : "";
       lines.push('<span class="' + cls + '">' + (r.ownSrc ? (r.ownSrc === "QR" ? "Élève " : "Fiche ") + fmt(r.own, true) : "") +
-        (v ? (r.ownSrc ? " · " : "") + "Vidéo " + fmt(v.t, true) : "") +
+        (v ? (r.ownSrc ? " · " : "") + "Vidéo " + fmt(v.t, true) + (v.manual ? " (corrigé)" : "") : "") +
         (r.delta != null ? " <b>" + (r.timeOk ? "✓" : "⚠ " + (r.delta > 0 ? "+" : "−") + (Math.abs(r.delta) / 1000).toFixed(1).replace(".", ",") + " s") + "</b>" : "") + "</span>");
     }
     if (r.est || r.said) {
@@ -237,6 +241,7 @@
       lines.push('<span class="' + ec + '">Estim. ' + (r.said ? "fiche " + fe(r.est) + " · annoncée " + fe(r.said) : fe(r.est)) +
         (r.estOk != null ? " <b>" + (r.estOk ? "✓" : "⚠ différente") + "</b>" : "") + "</span>");
     }
+    if (v) lines.push('<button type="button" class="fixbtn"' + fixAttrs + ">Ce n’est pas cet élève ?</button>");
     if (!lines.length) lines.push('<span class="muted">—</span>');
     return '<td><div class="rc">' + parts.join("") + '<div class="rl">' + lines.join("") + "</div></div></td>";
   }
@@ -340,12 +345,29 @@
       pfPhoto(b.dataset.pid).then(function (u) { if (u) b.querySelector("img").src = u; else b.remove(); });
     });
   }
+  /* Correction à la main : cette arrivée filmée appartient à un autre élève (ou à personne) */
+  var fixing = null;
   $("table").addEventListener("click", function (e) {
-    var b = e.target.closest(".thumb"); if (!b) return;
-    var img = b.querySelector("img"); if (!img.src) return;
-    $("zoomImg").src = img.src; $("zoomTxt").textContent = b.dataset.txt + " · " + b.closest("tr").querySelector(".who").textContent.trim();
+    var b = e.target.closest(".thumb, .fixbtn"); if (!b || !b.dataset.fix) return;
+    var cellEl = b.closest(".rc"), th = cellEl && cellEl.querySelector(".thumb img");
+    fixing = b.dataset.fix;
+    $("zoomImg").hidden = !(th && th.src); if (th && th.src) $("zoomImg").src = th.src;
+    $("zoomTxt").textContent = b.dataset.txt + (b.dataset.pf ? ". Nom dans PhotoFinish : " + b.dataset.pf + "." : ".");
+    var list = c.students.slice().sort(function (x, y) { return (x.last + x.first).localeCompare(y.last + y.first, "fr"); });
+    $("zoomWho").innerHTML = list.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === b.dataset.sid ? " selected" : "") + ">" + esc(x.last + " " + x.first) + "</option>"; }).join("") +
+      '<option value="none">Personne de la classe (ne pas compter cette arrivée)</option>';
+    $("zoomReset").hidden = !(s.pfFix && s.pfFix[fixing]);
     $("zoom").showModal();
   });
+  function saveFix(v) {
+    var hh = H.load(), ss = hh.sessions.find(function (x) { return x.id === s.id; }); if (!ss) return;
+    ss.pfFix = ss.pfFix || {};
+    if (v) ss.pfFix[fixing] = v; else delete ss.pfFix[fixing];
+    H.save(hh); s.pfFix = ss.pfFix; $("zoom").close(); refresh();
+  }
+  $("zoomSave").onclick = function () { saveFix($("zoomWho").value); };
+  $("zoomReset").onclick = function () { saveFix(""); };
+  $("zoomClose").onclick = function () { $("zoom").close(); };
   document.querySelector(".seg").addEventListener("click", function (e) {
     var b = e.target.closest("button"); if (!b) return;
     filter = b.dataset.f;
@@ -358,7 +380,7 @@
   if (s.method === "paper") how.push("temps écrit sur la fiche");
   $("explain").textContent = "Chaque " + (how[0] || "temps relevé") + " est comparé à l’arrivée filmée avec PhotoFinish : conforme à 2 secondes près." +
     (s.method === "paper" && s.type === "ccf" ? " L’estimation écrite sur la fiche est comparée à celle annoncée et notée dans Scan CCF." : "") +
-    " Les courses PhotoFinish du jour sont prises dans l’ordre : la 1re course filmée d’un élève est sa course 1. Filmé sur un autre iPad ? Importe ses fichiers HTML.";
+    " Les courses PhotoFinish du jour sont prises dans l’ordre : la 1re course filmée d’un élève est sa course 1. Une arrivée attribuée au mauvais élève ? Touche sa photo pour la corriger.";
 
   var rows = [], sd = null;
   function refresh() { buildVideo(); rows = build(sd); render(rows); }

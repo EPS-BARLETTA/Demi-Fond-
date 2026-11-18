@@ -9,7 +9,7 @@
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./apple-touch-icon.png">
 <link rel="icon" href="./icon-192.png">
-<link rel="stylesheet" href="./hub.css?v=2">
+<link rel="stylesheet" href="./hub.css?v=3">
 <title>Demi-fond EPS</title>
 </head>
 <body>
@@ -89,20 +89,26 @@
 </dialog>
 
 <!-- Classe : ajout / modification -->
-<dialog id="classDlg" class="sheet">
+<dialog id="classDlg" class="sheet wide">
   <form method="dialog" id="classForm">
     <h3 id="cdTitle">Ajouter une classe</h3>
     <label class="field">Nom de la classe<input name="name" id="cdName" placeholder="Ex. 2nde A, Terminales lundi" autocomplete="off"></label>
     <div class="import">
-      <label class="filebtn">📋 Importer la liste PRONOTE (CSV)<input type="file" id="cdFile" accept=".csv,.txt,text/csv,text/plain" hidden></label>
-      <span class="hint">ou colle la liste : une ligne par élève, « NOM Prénom » (F ou G à la fin si tu veux)</span>
+      <label class="filebtn">📋 Liste PRONOTE (CSV)<input type="file" id="cdFile" accept=".csv,.txt,text/csv,text/plain" hidden></label>
+      <label class="filebtn alt">📷 Trombinoscope PRONOTE<input type="file" id="cdTrombi" accept="image/jpeg,image/png,.jpg,.jpeg,.png" hidden></label>
     </div>
-    <textarea id="cdText" rows="7" placeholder="MARTIN Léa F&#10;DURAND Tom G&#10;…"></textarea>
-    <p class="hint" id="cdPreview"></p>
-    <div id="cdStudents" class="students"></div>
+    <p class="hint">Les deux se complètent : la liste donne fille / garçon, le trombinoscope ajoute les photos. Un élève sans photo reste dans la liste, sans photo.</p>
+    <p class="status" id="cdStatus" aria-live="polite"></p>
+    <details class="paste">
+      <summary>ou coller une liste (une ligne par élève : NOM Prénom F/G)</summary>
+      <textarea id="cdText" rows="5" placeholder="MARTIN Léa F&#10;DURAND Tom G"></textarea>
+      <button type="button" class="ghost small" id="cdPasteBtn">Ajouter ces élèves</button>
+    </details>
+    <div class="roster-head"><strong id="cdCount">Élèves</strong><button type="button" class="link" id="cdAddOne">+ Ajouter un élève</button></div>
+    <div id="cdRoster" class="roster"></div>
     <p class="err" id="cdErr" role="alert"></p>
     <div class="actions">
-      <button type="button" class="danger" id="cdDelete" hidden>Supprimer</button>
+      <button type="button" class="danger" id="cdDelete" hidden>Retirer</button>
       <span class="grow"></span>
       <button type="button" class="ghost" id="cdCancel">Annuler</button>
       <button type="submit" class="primary">Enregistrer</button>
@@ -118,7 +124,8 @@
 </dialog>
 
 <script src="./chrono/js/qrcode.min.js?v=1"></script>
-<script src="./hub/hub-data.js?v=1"></script>
-<script src="./hub/hub-ui.js?v=1"></script>
+<script src="./hub/hub-data.js?v=2"></script>
+<script src="./hub/trombi.js?v=1"></script>
+<script src="./hub/hub-ui.js?v=2"></script>
 </body>
 </html>

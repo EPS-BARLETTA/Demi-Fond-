@@ -128,7 +128,7 @@
     c.name = name.trim() || c.name;
     var old = c.students || [];
     c.students = list.map(function (s) {
-      var prev = old.find(function (o) { return norm(o.last + " " + o.first) === norm(s.last + " " + s.first); });
+      var prev = (s.id && old.find(function (o) { return o.id === s.id; })) || old.find(function (o) { return norm(o.last + " " + o.first) === norm(s.last + " " + s.first); });
       return { id: prev ? prev.id : uid("el-"), last: s.last, first: s.first, sex: s.sex || (prev && prev.sex) || "", cls: s.cls || (prev && prev.cls) || "" };
     }).sort(function (a, b) { return (a.last + a.first).localeCompare(b.last + b.first, "fr"); });
     c.updatedAt = Date.now();
@@ -146,7 +146,7 @@
     writeJSON(SCAN_KEY, db);
     return db;
   }
-  function syncVideo(c) {
+  function syncVideo(c, photos) {
     var classes = readJSON(PF_CLASSES, null) || [];
     var k = classes.find(function (x) { return x.id === c.id; }) || classes.find(function (x) { return norm(x.name) === norm(c.name); });
     if (!k) { k = { id: c.id, name: c.name, items: [] }; classes.push(k); }
@@ -156,7 +156,8 @@
       var line = fullName(s);
       var p = prev.find(function (it) { return norm(String(it.line).replace(/^\d{1,4}[\s.,;:\-–]+/, "")) === norm(line); });
       var item = { line: p ? p.line : line, g: p ? p.g || 0 : 0 };
-      if (p && p.portrait) item.portrait = p.portrait;
+      var ph = photos && photos[s.id];
+      if (validPhoto(ph)) item.portrait = ph; else if (p && p.portrait) item.portrait = p.portrait;
       return item;
     });
     writeJSON(PF_CLASSES, classes);
@@ -171,7 +172,7 @@
     });
   }
   function sdYear() { var d = new Date(), y = d.getFullYear(); return d.getMonth() >= 7 ? y + "-" + (y + 1) : (y - 1) + "-" + y; }
-  function syncDocs(c) {
+  function syncDocs(c, photos) {
     return sdOpen().then(function (db) {
       return new Promise(function (res, rej) {
         var t = db.transaction("state", "readwrite"), st = t.objectStore("state"), g = st.get("data");
@@ -185,8 +186,9 @@
           c.students.forEach(function (e) {
             var name = fullName(e), sx = e.sex === "M" ? "G" : e.sex === "F" ? "F" : undefined;
             var ex = s.students.find(function (x) { return x.id === e.id || (x.classId === k.id && norm(x.name) === norm(name)); });
-            if (ex) { ex.name = name; if (sx) ex.sex = sx; }
-            else { var o = { id: e.id, classId: k.id, name: name }; if (sx) o.sex = sx; if (e.cls && norm(e.cls) !== norm(c.name)) o.cls = e.cls; s.students.push(o); }
+            var ph = photos && photos[e.id];
+            if (ex) { ex.name = name; if (sx) ex.sex = sx; if (validPhoto(ph)) ex.portrait = ph; }
+            else { var o = { id: e.id, classId: k.id, name: name }; if (sx) o.sex = sx; if (e.cls && norm(e.cls) !== norm(c.name)) o.cls = e.cls; if (validPhoto(ph)) o.portrait = ph; s.students.push(o); }
           });
           st.put(s, "data");
         };
@@ -196,8 +198,10 @@
     });
   }
   function syncClass(c) {
-    syncScan(c); syncVideo(c);
-    return syncDocs(c).catch(function (e) { console.warn("ScanDocument : classe non recopiée", e); });
+    return photosGet(c.students.map(function (s) { return s.id; })).then(function (photos) {
+      syncScan(c); syncVideo(c, photos);
+      return syncDocs(c, photos).catch(function (e) { console.warn("ScanDocument : classe non recopiée", e); });
+    });
   }
   function syncAll(h) { return Promise.all((h || load()).classes.map(syncClass)); }
 
@@ -240,6 +244,45 @@
     }).catch(function () { return []; });
   }
 
+  /* ---------- portraits (trombinoscope) : gardés dans IndexedDB, pas dans localStorage ---------- */
+  var PHOTO_DB = "eps-hub-photos";
+  function photoDB() {
+    return new Promise(function (res, rej) {
+      var r = indexedDB.open(PHOTO_DB, 1);
+      r.onupgradeneeded = function () { r.result.createObjectStore("p"); };
+      r.onsuccess = function () { res(r.result); }; r.onerror = function () { rej(r.error); };
+    });
+  }
+  function photosGet(ids) {
+    return photoDB().then(function (db) {
+      return new Promise(function (res) {
+        var out = {}, t = db.transaction("p"), st = t.objectStore("p");
+        ids.forEach(function (id) { var g = st.get(id); g.onsuccess = function () { if (g.result) out[id] = g.result; }; });
+        t.oncomplete = function () { db.close(); res(out); };
+        t.onerror = function () { db.close(); res(out); };
+      });
+    }).catch(function () { return {}; });
+  }
+  function photosPut(map) {
+    return photoDB().then(function (db) {
+      return new Promise(function (res) {
+        var t = db.transaction("p", "readwrite"), st = t.objectStore("p");
+        Object.keys(map).forEach(function (id) { if (map[id]) st.put(map[id], id); else st.delete(id); });
+        t.oncomplete = function () { db.close(); res(); };
+        t.onerror = function () { db.close(); res(); };
+      });
+    }).catch(function () {});
+  }
+  function validPhoto(v) { return typeof v === "string" && v.length <= 30000 && /^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(v); }
+
+  /* Même identifiant que Chrono Carnet (QR élève), pour que tout se rejoigne dans Scan CCF */
+  function stdId(last, first, cls) {
+    var s = String(last).trim().toUpperCase() + "|" + String(first).trim().toUpperCase() + "|" + String(cls).trim().toUpperCase();
+    var h = 2166136261;
+    for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return "STD-" + (h >>> 0).toString(16).padStart(8, "0");
+  }
+
   /* ---------- séance ---------- */
   function today() { var d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
   function dayLabel(iso) { var p = String(iso || "").split("-"); return p.length === 3 ? p[2] + "/" + p[1] + "/" + p[0] : iso; }
@@ -249,12 +292,12 @@
     if (!c) throw new Error("Classe introuvable.");
     var s = { id: uid("se-"), classId: c.id, docsId: c.docsId || c.id, type: opts.type, method: opts.method, video: !!opts.video, date: today(), createdAt: Date.now(), done: {} };
     // Une séance et un exercice prêts dans Scan CCF, pour scanner les QR au bon endroit
-    if (opts.method === "chrono") {
+    if (opts.method === "chrono" || (opts.method === "paper" && opts.type === "ccf")) {
       var db = syncScan(c);
       var g = db.groups.find(function (x) { return x.id === c.id; });
       var lessonId = uid(), exId = uid();
       g.sessions.push({ id: exId, createdAt: Date.now(), lessonId: lessonId, lessonDate: s.date, lessonLabel: "Séance du " + dayLabel(s.date),
-        label: TYPES[opts.type].label, type: "", status: "open", students: [] });
+        label: TYPES[opts.type].label + (opts.method === "paper" ? " · fiches papier" : ""), type: opts.method === "paper" ? "ccf" : "", status: "open", students: [] });
       db.activeGroupId = c.id; db.activeSessionId = exId;
       writeJSON(SCAN_KEY, db);
       s.scanExerciseId = exId;
@@ -309,6 +352,7 @@
     TYPES: TYPES, METHODS: METHODS, load: load, save: save, current: current, classById: classById,
     readRoster: readRoster, upsertClass: upsertClass, syncClass: syncClass, syncAll: syncAll,
     foundInTools: foundInTools, foundInDocs: foundInDocs, startSession: startSession,
-    encodeRoster: encodeRoster, decodeRoster: decodeRoster, fullName: fullName, norm: norm, dayLabel: dayLabel, uid: uid
+    encodeRoster: encodeRoster, decodeRoster: decodeRoster, photosGet: photosGet, photosPut: photosPut, validPhoto: validPhoto,
+    stdId: stdId, readJSON: readJSON, writeJSON: writeJSON, splitName: splitName, sdOpen: sdOpen, fullName: fullName, norm: norm, dayLabel: dayLabel, uid: uid
   };
 })(window);

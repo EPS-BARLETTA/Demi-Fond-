@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<link rel="stylesheet" href="../hub.css?v=3">
+<link rel="icon" href="../icon-192.png">
+<title>Estimations annoncées – Demi-fond EPS</title>
+</head>
+<body>
+<main class="hub">
+  <a class="back" href="../">← Étapes de la séance</a>
+  <header class="page-head">
+    <span class="kicker" id="kicker"></span>
+    <h1>Estimations annoncées</h1>
+    <p class="hint">Avant chaque 800, demande son temps prévu à l’élève et note-le ici. C’est enregistré dans Scan CCF, puis comparé à ce qui est écrit sur sa fiche.</p>
+  </header>
+  <div class="seg-race" role="group" aria-label="Course">
+    <button type="button" data-r="1" aria-pressed="true">1er 800 m</button>
+    <button type="button" data-r="2" aria-pressed="false">2e 800 m</button>
+  </div>
+  <input type="search" id="find" class="find" placeholder="Rechercher un élève" autocomplete="off">
+  <div id="list" class="est-list"></div>
+  <p class="foot">Formats acceptés : 3:30 · 3.30 · 330. Enregistrement automatique.</p>
+</main>
+<script src="./hub-data.js?v=2"></script>
+<script src="./estimations.js?v=1"></script>
+</body>
+</html>

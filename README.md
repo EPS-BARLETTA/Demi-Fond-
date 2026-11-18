@@ -12,7 +12,9 @@ Une seule application, de la classe à la note.
    - iPad : Chrono Carnet dans le bon mode → QR de séance (avec la liste de la classe : chaque élève choisit son nom) → scan des QR dans Scan CCF (séance déjà créée) → résultats et notes.
    - Papier : impression des fiches (classe et fiche déjà choisies) → photo des fiches → résultats et notes.
    - Vidéo : PhotoFinish sur la bonne classe → classement.
-4. Un bouton en bas à gauche de chaque outil ramène aux étapes de la séance.
+4. **Contrôle des temps** (si l'arrivée est filmée, ou 2 × 800 sur fiches) : temps du QR élève ou de la fiche ↔ arrivée PhotoFinish à 2 s près, avec la photo d'arrivée ; estimation écrite sur la fiche ↔ estimation annoncée (notée dans Scan CCF via l'écran « Estimations annoncées »). Imprimable en PDF.
+5. **Trombinoscope** : à la création de la classe, une capture du trombinoscope PRONOTE ajoute les photos (ou crée la liste). Un élève sans photo reste dans la liste.
+6. Un bouton en bas à gauche de chaque outil ramène aux étapes de la séance.
 
 ## Dossiers
 | Dossier | Outil |

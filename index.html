@@ -11,7 +11,7 @@
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./apple-touch-icon.png">
 <link rel="icon" href="./icon-192.png">
-<link rel="stylesheet" href="./hub.css?v=7">
+<link rel="stylesheet" href="./hub.css?v=8">
 <title>Demi-fond EPS</title>
 </head>
 <body>
@@ -147,6 +147,34 @@
   </div>
 </dialog>
 
+<!-- Terminer la séance : enregistrer sur l'iPad, puis libérer la mémoire -->
+<dialog id="endDlg" class="sheet">
+  <div class="sheet-body">
+    <h2>Terminer la séance</h2>
+    <p class="lead" id="endLead">Garde une copie de la séance sur l’iPad avant de passer à autre chose.</p>
+    <ol class="endsteps">
+      <li>
+        <strong>Enregistrer la séance sur l’iPad</strong>
+        <p>Un seul fichier avec tout : résultats des élèves, fiches lues, courses filmées et photos d’arrivée. Dans la fenêtre qui s’ouvre, choisis « Enregistrer dans Fichiers ».</p>
+        <button type="button" class="btn solid" id="endSave">Enregistrer la séance</button>
+        <p class="done-note" id="endSaved"></p>
+      </li>
+      <li>
+        <strong>Libérer la mémoire</strong>
+        <p id="endWeight">Une fois la séance enregistrée, retire de l’appli ses photos et ses courses filmées. Les résultats et les notes restent ; le fichier enregistré permet de tout rouvrir.</p>
+        <button type="button" class="btn line" id="endFree" disabled>Libérer la mémoire</button>
+        <p class="done-note" id="endFreed"></p>
+      </li>
+    </ol>
+    <p class="err" id="endErr" role="alert"></p>
+  </div>
+  <div class="sheet-foot">
+    <button type="button" class="btn quiet" id="endCancel">Revenir à la séance</button>
+    <span class="grow"></span>
+    <button type="button" class="btn solid" id="endOk">Terminer la séance</button>
+  </div>
+</dialog>
+
 <dialog id="qrDialog" class="sheet">
   <div class="sheet-body">
     <h2>Espace élève</h2>
@@ -161,6 +189,7 @@
 <script src="./hub/hub-data.js?v=4"></script>
 <script src="./hub/prenoms.js?v=1"></script>
 <script src="./hub/trombi.js?v=1"></script>
-<script src="./hub/hub-ui.js?v=4"></script>
+<script src="./hub/archive.js?v=2"></script>
+<script src="./hub/hub-ui.js?v=6"></script>
 </body>
 </html>

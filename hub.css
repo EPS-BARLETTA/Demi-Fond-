@@ -337,3 +337,18 @@ table.ctl tr.warn { background: #f7f4fd; }
 .course-row { display: flex; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line-2); color: var(--ink); cursor: pointer; }
 .course-row input { width: 20px; height: 20px; }
 .course-row small { color: var(--muted); }
+
+/* Terminer la séance */
+.endsteps { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; counter-reset: st; }
+.endsteps li { counter-increment: st; position: relative; padding: 16px 16px 16px 58px; border: 1px solid var(--line); border-radius: var(--radius-m); background: #fff; }
+.endsteps li::before { content: counter(st); position: absolute; left: 16px; top: 14px; width: 30px; height: 30px; border-radius: 50%; background: var(--tartan); color: #fff; display: grid; place-items: center; font-family: var(--display); font-weight: 800; }
+.endsteps p { margin: 4px 0 10px; color: var(--ink-2); font-size: 15px; }
+.endsteps .done-note { margin: 8px 0 0; }
+.saved-tag { display: inline-block; font-size: 13px; font-weight: 650; padding: 2px 9px; border-radius: 999px; margin-left: 8px; vertical-align: 2px; }
+.saved-tag.ok { background: var(--pitch-soft); color: var(--pitch); }
+.saved-tag.todo { background: var(--amber-soft); color: var(--amber); }
+.past-class { margin: 18px 0 6px; font-size: 16px; font-weight: 750; color: var(--ink-2); }
+.remind { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+.remind p { margin: 2px 0 0; }
+.past-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.tool-tile.filebtn { cursor: pointer; }

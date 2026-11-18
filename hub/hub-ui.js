@@ -105,7 +105,7 @@
   function renderSeance() {
     var h = H.load(), s = H.current(h), v = $("v-seance");
     if (!s) {
-      var past = h.sessions.filter(function (x) { return x.closed || x.id !== h.currentId; }).slice(0, 6);
+      var past = h.sessions.filter(function (x) { return x.closed || x.id !== h.currentId; }).slice(0, 40);
       if (!h.classes.length) {
         v.innerHTML = '<div class="welcome"><h1>Bienvenue</h1><p>Demi-fond EPS réunit Chrono Carnet, PhotoFinish, Scan CCF et les fiches papier. Tu crées ta classe une fois, puis chaque séance se déroule étape par étape, jusqu’à la note.</p>' +
           '<ol class="track">' +
@@ -116,20 +116,31 @@
         $("firstClass").onclick = function () { openClass(null, true); };
         return;
       }
-      v.innerHTML = '<div class="view-head"><div><h1>Prêt pour une séance ?</h1><p>Choisis la classe, l’épreuve et qui prend les temps. Les étapes s’affichent ensuite dans l’ordre.</p></div>' +
+      var unsaved = past.filter(function (x) { return !x.savedAt; });
+      var byClass = {};
+      past.forEach(function (x) { (byClass[x.classId] = byClass[x.classId] || []).push(x); });
+      v.innerHTML = (unsaved.length ? '<div class="notice warn remind"><div><h3>' + plural(unsaved.length, "séance pas encore enregistrée", "séances pas encore enregistrées") + " sur l’iPad</h3>" +
+          "<p>Enregistre-les pour garder une copie de leurs résultats et de leurs photos, puis libère la mémoire de l’appli.</p></div>" +
+          '<button type="button" class="btn solid small" data-end="' + esc(unsaved[0].id) + '">Enregistrer la plus récente</button></div>' : "") +
+        '<div class="view-head"><div><h1>Prêt pour une séance ?</h1><p>Choisis la classe, l’épreuve et qui prend les temps. Les étapes s’affichent ensuite dans l’ordre.</p></div>' +
         '<button type="button" class="btn cta" id="newSess">Nouvelle séance</button></div>' +
-        (past.length ? '<h2 class="section-title">Séances précédentes</h2><div class="past">' + past.map(function (x) {
-          var c = H.classById(h, x.classId);
-          return '<button type="button" class="past-row" data-id="' + esc(x.id) + '"><span><strong>' + esc(c ? c.name : "Classe retirée") + "</strong>, " + esc(H.TYPES[x.type].label) +
-            "<small>" + esc(longDate(x.date)) + ", " + esc(METHOD_TEXT[x.method]) + '</small></span><span class="go">Rouvrir</span></button>';
-        }).join("") + "</div>" : "") + installHint();
+        (past.length ? '<h2 class="section-title">Séances précédentes</h2>' + sortClasses(h.classes.filter(function (c) { return byClass[c.id]; })).map(function (c) {
+          return '<p class="past-class">' + esc(c.name) + '</p><div class="past">' + byClass[c.id].map(function (x) {
+            var tag = x.savedAt ? '<span class="saved-tag ok">Enregistrée' + (x.freedAt ? ", mémoire libérée" : "") + "</span>" : '<span class="saved-tag todo">À enregistrer</span>';
+            return '<div class="past-row"><span><strong>' + esc(H.TYPES[x.type].label) + "</strong>" + tag +
+              "<small>" + esc(longDate(x.date)) + ", " + esc(METHOD_TEXT[x.method]) + '</small></span><span class="past-actions">' +
+              (x.freedAt ? "" : '<button type="button" class="btn quiet small" data-end="' + esc(x.id) + '">' + (x.savedAt ? "Enregistrer à nouveau" : "Enregistrer") + "</button>") +
+              '<button type="button" class="btn line small" data-open="' + esc(x.id) + '">Rouvrir</button></span></div>';
+          }).join("") + "</div>";
+        }).join("") : "") + installHint();
       $("newSess").onclick = openWizard;
-      v.querySelectorAll(".past-row").forEach(function (b) {
+      v.querySelectorAll("[data-open]").forEach(function (b) {
         b.onclick = function () {
-          var hh = H.load(), x = hh.sessions.find(function (y) { return y.id === b.dataset.id; });
-          if (!x) return; delete x.closed; hh.currentId = x.id; H.save(hh); sel = null; renderSeance();
+          var hh = H.load(), x = hh.sessions.find(function (y) { return y.id === b.dataset.open; });
+          if (!x) return; delete x.closed; hh.currentId = x.id; H.save(hh); sel = null; renderSeance(); window.scrollTo(0, 0);
         };
       });
+      v.querySelectorAll("[data-end]").forEach(function (b) { b.onclick = function () { openEnd(b.dataset.end, false); }; });
       return;
     }
     var c = H.classById(h, s.classId) || { name: "Classe retirée", students: [] };
@@ -150,12 +161,7 @@
     $("openStep").onclick = function () { openStep(sel); };
     if ($("doneStep")) $("doneStep").onclick = function () { markDone(st.key); sel = Math.min(sel + 1, list.length - 1); renderSeance(); };
     if ($("nextStep")) $("nextStep").onclick = function () { sel++; renderSeance(); };
-    $("endSess").onclick = function () {
-      if (!confirm("Terminer la séance « " + c.name + " » ?\nElle reste dans les séances précédentes : tu pourras la rouvrir.")) return;
-      var hh = H.load(), ss = H.current(hh);
-      if (ss) { ss.closed = Date.now(); hh.currentId = null; H.save(hh); }
-      sel = null; renderSeance();
-    };
+    $("endSess").onclick = function () { openEnd(s.id, true); };
   }
   function markDone(k) { var hh = H.load(), ss = H.current(hh); if (ss && !ss.done[k]) { ss.done[k] = Date.now(); H.save(hh); } }
 
@@ -302,7 +308,8 @@
         var nf = c.students.filter(function (x) { return x.sex === "F"; }).length, ng = c.students.filter(function (x) { return x.sex === "M"; }).length;
         var miss = c.students.length - nf - ng;
         return '<button type="button" class="class-card" data-id="' + esc(c.id) + '"><h3>' + esc(c.name) + '</h3><div class="faces" data-faces="' + esc(c.id) + '"></div>' +
-          '<span class="meta">' + plural(c.students.length, "élève") + ", " + nf + " F, " + ng + " G" + (miss ? ", <strong>" + miss + " à compléter</strong>" : "") + "</span></button>";
+          '<span class="meta">' + plural(c.students.length, "élève") + ", " + nf + " F, " + ng + " G" + (miss ? ", <strong>" + miss + " à compléter</strong>" : "") +
+          (function () { var n = h.sessions.filter(function (x) { return x.classId === c.id; }).length; return n ? "<br>" + plural(n, "séance") : ""; })() + "</span></button>";
       }).join("") + '<button type="button" class="class-card add" id="addClass2">Ajouter une classe</button></div><div id="foundZone"></div>';
     $("addClass").onclick = $("addClass2").onclick = function () { openClass(null); };
     v.querySelectorAll(".class-card[data-id]").forEach(function (b) { b.onclick = function () { openClass(b.dataset.id); }; });
@@ -598,6 +605,62 @@
   });
 
   /* =========================================================
+     Terminer : enregistrer la séance sur l'iPad, puis libérer la mémoire
+  ========================================================= */
+  var ending = null;
+  function openEnd(id, closing) {
+    ending = { id: id, closing: closing };
+    var h = H.load(), x = h.sessions.find(function (y) { return y.id === id; }), c = x && H.classById(h, x.classId);
+    if (!x) return;
+    $("endDlg").querySelector("h2").textContent = closing ? "Terminer la séance" : "Enregistrer la séance";
+    $("endLead").textContent = (c ? c.name + ", " : "") + H.TYPES[x.type].label + ", " + longDate(x.date) + ".";
+    $("endOk").hidden = !closing; $("endCancel").textContent = closing ? "Revenir à la séance" : "Fermer";
+    $("endErr").textContent = ""; $("endFreed").textContent = x.freedAt ? "Mémoire libérée." : "";
+    $("endSaved").textContent = x.savedAt ? "Enregistrée le " + new Date(x.savedAt).toLocaleString("fr-FR", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }) + (x.savedName ? " (" + x.savedName + ")" : "") + "." : "";
+    $("endSave").textContent = x.savedAt ? "Enregistrer à nouveau" : "Enregistrer la séance";
+    $("endSave").disabled = !!x.freedAt;
+    if (x.freedAt) $("endSaved").textContent += " Mémoire déjà libérée : pour l’enregistrer à nouveau avec ses photos, rouvre d’abord le fichier (Outils).";
+    $("endFree").disabled = !x.savedAt || !!x.freedAt;
+    $("endWeight").textContent = "Une fois la séance enregistrée, retire de l’appli ses photos et ses courses filmées. Les résultats et les notes restent ; le fichier enregistré permet de tout rouvrir.";
+    window.EPSArchive.weight(id).then(function (w) {
+      var bits = [];
+      if (w.photos) bits.push(plural(w.photos, "photo d’arrivée", "photos d’arrivée") + " (" + plural(w.courses, "course filmée", "courses filmées") + ")");
+      if (w.sheets) bits.push(plural(w.sheets, "photo de fiche", "photos de fiches"));
+      if (w.imported) bits.push(plural(w.imported, "course PhotoFinish importée", "courses PhotoFinish importées"));
+      if (bits.length) $("endWeight").textContent = "Cette séance occupe : " + bits.join(", ") + ". Une fois enregistrée, retire-les de l’appli : les résultats et les notes restent, et le fichier enregistré permet de tout rouvrir.";
+      else if (!x.freedAt) { $("endWeight").textContent = "Rien de lourd à retirer pour cette séance (pas de photos ni de courses filmées)."; $("endFree").disabled = true; }
+    });
+    $("endDlg").showModal();
+  }
+  $("endSave").onclick = function () {
+    if (!ending) return;
+    $("endErr").textContent = ""; $("endSave").disabled = true;
+    window.EPSArchive.save(ending.id).then(function (r) {
+      $("endSave").disabled = false;
+      if (!r) return;
+      $("endSaved").textContent = "Enregistrée : " + r.name + " (" + r.parts.join(", ") + ").";
+      $("endSave").textContent = "Enregistrer à nouveau";
+      var x = H.load().sessions.find(function (y) { return y.id === ending.id; });
+      $("endFree").disabled = !!(x && x.freedAt) || /Rien de lourd/.test($("endWeight").textContent);
+    }).catch(function (err) { $("endSave").disabled = false; $("endErr").textContent = err.message; });
+  };
+  $("endFree").onclick = function () {
+    if (!ending) return;
+    if (!confirm("Retirer de l’appli les photos et les courses filmées de cette séance ?\n\nVérifie que le fichier est bien dans Fichiers : c’est lui qui permettra de les rouvrir.")) return;
+    window.EPSArchive.free(ending.id).then(function () {
+      $("endFreed").textContent = "Mémoire libérée. Pour revoir les photos : Outils, « Rouvrir une séance enregistrée ».";
+      $("endFree").disabled = true;
+    }).catch(function (err) { $("endErr").textContent = err.message; });
+  };
+  $("endCancel").onclick = function () { $("endDlg").close(); if (!ending.closing) renderSeance(); };
+  $("endOk").onclick = function () {
+    var hh = H.load(), ss = hh.sessions.find(function (y) { return y.id === ending.id; });
+    if (ss && !ss.savedAt && !confirm("La séance n’est pas enregistrée sur l’iPad. La terminer quand même ?\nTu pourras l’enregistrer plus tard depuis les séances précédentes.")) return;
+    if (ss) { ss.closed = Date.now(); if (hh.currentId === ss.id) hh.currentId = null; H.save(hh); }
+    $("endDlg").close(); sel = null; renderSeance();
+  };
+
+  /* =========================================================
      Vue Outils
   ========================================================= */
   function storageUsage() {
@@ -629,17 +692,30 @@
       tile("scan", "📷", "Scan CCF", "Classes, scan des QR codes, résultats et notes") +
       tile("docs", "📝", "Fiches papier", "Fiches à bulles, lecture des photos, barèmes") +
       '<button type="button" class="tool-tile" id="qrBtn"><span class="ic" aria-hidden="true">🏃</span><span><strong>Espace élève</strong><small>QR code à montrer aux élèves : Chrono Carnet et leur carnet de suivi</small></span></button>' +
+      '<label class="tool-tile filebtn"><span class="ic" aria-hidden="true">📂</span><span><strong>Rouvrir une séance enregistrée</strong><small>Choisis le fichier « Demi-fond_… .html » dans Fichiers</small></span><input type="file" id="reopenFile" accept=".html,.htm,text/html"></label>' +
       "</div>" +
       '<h2 class="section-title">Mémoire de l’iPad</h2>' +
       '<div class="notice' + (pct > 85 || shared ? " warn" : "") + '"><h3>' + mo(u.total) + " utilisés sur environ 5 Mo</h3>" +
       '<div class="meter' + (pct > 85 ? " full" : "") + '"><i style="width:' + pct + '%"></i></div>' +
       '<ul class="usage">' + Object.keys(u.groups).sort(function (a, b) { return u.groups[b] - u.groups[a]; }).map(function (g) { return "<li><span>" + esc(g) + "</span><span>" + mo(u.groups[g]) + "</span></li>"; }).join("") + "</ul>" +
       (shared ? "<p><strong>Dans Safari, cette adresse partage ses 5 Mo avec toutes tes applis GitHub.</strong> Installe Demi-fond EPS sur l’écran d’accueil (Partager, puis « Sur l’écran d’accueil ») : l’appli installée a sa propre mémoire.</p>" : "") +
-      '<p class="muted">Les copies de secours de Scan CCF sont rangées à part et ne comptent pas ici.</p></div>';
+      '<p class="muted">Les copies de secours de Scan CCF sont rangées à part et ne comptent pas ici.</p><p class="muted" id="diskUse"></p>' +
+      "<p>Pour faire de la place : à la fin de chaque séance, « Terminer la séance », enregistre-la sur l’iPad puis libère sa mémoire.</p></div>";
     v.querySelectorAll("[data-tool]").forEach(function (b) {
       b.onclick = function () { openTool(b.dataset.tool, "./" + b.dataset.tool + "/", { title: TOOL_NAMES[b.dataset.tool], back: "Outils" }); };
     });
     $("qrBtn").onclick = showStudentQR;
+    $("reopenFile").onchange = function (e) {
+      var f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return;
+      window.EPSArchive.readFile(f).then(window.EPSArchive.restore).then(function (r) {
+        alert("Séance rouverte : " + r.klass + "\n" + r.parts.join("\n"));
+        sel = null; location.hash = "#seance";
+      }).catch(function (err) { alert(err.message); });
+    };
+    if (navigator.storage && navigator.storage.estimate) navigator.storage.estimate().then(function (est) {
+      var el = $("diskUse"); if (!el || !est.usage) return;
+      el.textContent = "Avec les photos (élèves, arrivées, fiches), l’appli occupe " + mo(est.usage) + " sur l’iPad.";
+    });
   }
   function showStudentQR() {
     var box = $("qrBox"), url = new URL("./eleve/", location.href).href;

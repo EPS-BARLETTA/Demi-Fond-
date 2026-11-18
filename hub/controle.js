@@ -32,11 +32,32 @@
     return mn + ":" + ss.replace(".", ",");
   }
   function sameDay(ts, iso) { var d = new Date(ts); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0") === iso; }
-  function keyOf(name) { return H.norm(name).split(" ").sort().join(" "); }
+  // Noms écrits différemment selon les outils : accents, apostrophes, tirets, majuscules, nom tronqué « Mary-… »
+  function flat(name) {
+    return String(name || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+      .replace(/[’'`´]/g, "").replace(/[-_.,]/g, " ").replace(/\s+/g, " ").trim();
+  }
+  function keyOf(name) { return flat(name).replace(/…/g, "").split(" ").filter(Boolean).sort().join(" "); }
 
   /* ---------- élèves ---------- */
   var byKey = {};
   c.students.forEach(function (e) { byKey[keyOf(e.last + " " + e.first)] = e; });
+  c.aliases = c.aliases || {};
+  function matchStudent(name) {
+    var k = keyOf(name);
+    if (c.aliases[k]) { var al = c.students.find(function (e) { return e.id === c.aliases[k]; }); if (al) return al; }
+    if (byKey[k]) return byKey[k];
+    // nom tronqué par PhotoFinish : « ABESSOLO ABESSOLO Mary-… »
+    if (/…|\.\.\.$/.test(name)) {
+      var pre = flat(name).replace(/…|\.\.\.$/g, "").trim();
+      var hits = c.students.filter(function (e) { return flat(e.last + " " + e.first).indexOf(pre) === 0; });
+      if (hits.length === 1) return hits[0];
+    }
+    // même nom sans les espaces (« CHEVASSUS- MARCHE »)
+    var tight = flat(name).replace(/ /g, "");
+    var t2 = c.students.filter(function (e) { return flat(e.last + " " + e.first).replace(/ /g, "") === tight || flat(e.first + " " + e.last).replace(/ /g, "") === tight; });
+    return t2.length === 1 ? t2[0] : null;
+  }
 
   /* ---------- PhotoFinish ----------
      Deux sources, mises dans le même format { date, title, group, arrivals: [{ name, t, pid | src }] } :
@@ -60,7 +81,7 @@
     courses.forEach(function (co, ci) {
       co.arrivals.forEach(function (a, ai) {
         if (!a.name || /^non nomm/i.test(a.name)) return;
-        var e = byKey[keyOf(a.name)];
+        var e = matchStudent(a.name);
         var rec = { t: a.t, pid: a.pid, src: a.src, course: ci, rank: ai + 1, title: co.title, group: co.group };
         if (!e) { unknown.push(Object.assign({ name: a.name }, rec)); return; }
         (video[e.id] = video[e.id] || []).push(rec);
@@ -112,13 +133,14 @@
         return co.arrivals.reduce(function (c2, a) {
           return c2.then(function () { if (!a.src) return; if (cache[a.src]) { a.src = cache[a.src]; return; } var orig = a.src; return shrink(orig).then(function (sm) { cache[orig] = sm; a.src = sm; }); });
         }, Promise.resolve()).then(function () {
+          var dup = imported.some(function (x) { return x.key === co.key && x.group === co.group; });
           imported = imported.filter(function (x) { return x.key !== co.key || x.group !== co.group; });
-          imported.push(co); n++;
+          imported.push(co); if (!dup) n++;
         });
       }).catch(function () {});
     }, Promise.resolve()).then(function () {
       saveImported();
-      $("pfStatus").textContent = n ? n + " course" + (n > 1 ? "s" : "") + " PhotoFinish importée" + (n > 1 ? "s" : "") + "." : "Aucune course reconnue : choisis les fichiers HTML exportés par PhotoFinish (course_….html).";
+      $("pfStatus").textContent = n ? n + " course" + (n > 1 ? "s" : "") + " PhotoFinish importée" + (n > 1 ? "s" : "") + "." : files.length ? "Ces courses étaient déjà importées." : "Aucune course reconnue : choisis les fichiers HTML exportés par PhotoFinish (course_….html).";
       refresh();
     });
   });
@@ -127,11 +149,15 @@
   var scan = H.readJSON("df-scan-ccf-v2", null);
   var grp = scan && scan.groups.find(function (g) { return g.id === c.id; });
   var ex = grp && s.scanExerciseId && grp.sessions.find(function (x) { return x.id === s.scanExerciseId; });
+  // Résultats scannés dans un autre exercice de la classe (même jour) : on prend celui qui contient des élèves
+  var exChoices = grp ? grp.sessions.filter(function (x) { return (x.students || []).length && (!s.date || x.lessonDate === s.date); }) : [];
+  if ((!ex || !(ex.students || []).length) && exChoices.length) ex = exChoices[exChoices.length - 1];
   function scanStudent(e) {
     if (!ex) return null;
     var id = H.stdId(e.last, e.first, e.cls || c.name);
     return ex.students.find(function (x) { return x.id === id || x.externalId === id; }) ||
-      ex.students.find(function (x) { return keyOf(x.last + " " + x.first) === keyOf(e.last + " " + e.first); });
+      ex.students.find(function (x) { return keyOf(x.last + " " + x.first) === keyOf(e.last + " " + e.first); }) ||
+      ex.students.find(function (x) { return matchStudent(x.last + " " + x.first) === e; });
   }
 
   /* ---------- ScanDocument (fiches papier) ---------- */
@@ -205,7 +231,8 @@
     }
     if (r.est || r.said) {
       var ec = r.estOk === true ? "ok" : r.estOk === false ? "bad" : "";
-      lines.push('<span class="' + ec + '">Estim. ' + (r.said ? "fiche " + esc(r.est || "—") + " · annoncée " + esc(r.said) : esc(r.est)) +
+      var fe = function (v) { var m = ms(v); return m == null ? esc(v || "—") : fmt(m); };
+      lines.push('<span class="' + ec + '">Estim. ' + (r.said ? "fiche " + fe(r.est) + " · annoncée " + fe(r.said) : fe(r.est)) +
         (r.estOk != null ? " <b>" + (r.estOk ? "✓" : "⚠ différente") + "</b>" : "") + "</span>");
     }
     if (!lines.length) lines.push('<span class="muted">—</span>');
@@ -233,8 +260,58 @@
       var d = new Date(co.date);
       return "<li>" + esc(co.title || "Course") + (co.group ? ", " + esc(co.group) : "") + ", " + d.getHours() + "h" + pad(d.getMinutes()) + ", " + co.arrivals.length + " arrivées (" + esc(co.source) + ")</li>";
     }).join("") + "</ol>" : "<p>Aucune course PhotoFinish pour cette classe ce jour-là.</p>") +
-      (unknown.length ? "<p><strong>Arrivées sans élève reconnu :</strong> " + unknown.map(function (u) { return esc(u.name) + " (" + fmt(u.t, true) + ")"; }).join(", ") + "</p>" : "");
+      "";
+    renderUnknown();
     loadThumbs();
+  }
+
+  /* Noms PhotoFinish non reconnus : le professeur choisit l'élève (gardé pour les prochaines fois) */
+  // Élève avec des temps (QR ou fiche) mais sans vidéo, et vidéo sans temps sous un autre nom :
+  // si les temps concordent à 2 s près, c'est sûrement le même coureur, mal nommé dans PhotoFinish.
+  function swaps() {
+    var noVid = rows.filter(function (x) { return x.races.some(function (r) { return r.own != null; }) && !x.races.some(function (r) { return r.v; }); });
+    var noOwn = rows.filter(function (x) { return x.races.some(function (r) { return r.v; }) && !x.races.some(function (r) { return r.own != null; }); });
+    var out = [];
+    noVid.forEach(function (a) {
+      noOwn.forEach(function (b) {
+        var n = 0, ok = true;
+        a.races.forEach(function (r, i) { var v = b.races[i] && b.races[i].v; if (r.own != null && v) { n++; if (Math.abs(r.own - v.t) > TOL) ok = false; } });
+        if (ok && n >= 1) out.push({ student: a.e, pfStudent: b.e, n: n });
+      });
+    });
+    return out;
+  }
+  function pfNamesOf(student) {
+    var names = [];
+    courses.forEach(function (co) { co.arrivals.forEach(function (a) { if (a.name && matchStudent(a.name) === student && names.indexOf(a.name) < 0) names.push(a.name); }); });
+    return names;
+  }
+  function renderUnknown() {
+    var box = $("unknown"); if (!box) return;
+    var names = []; unknown.forEach(function (u) { if (names.indexOf(u.name) < 0) names.push(u.name); });
+    var sw = swaps();
+    if (!names.length && !sw.length) { box.innerHTML = ""; return; }
+    var opts = '<option value="">Choisir l’élève…</option>' + c.students.slice().sort(function (a, b) { return (a.last + a.first).localeCompare(b.last + b.first, "fr"); })
+      .map(function (e) { return '<option value="' + esc(e.id) + '">' + esc(e.last + " " + e.first) + "</option>"; }).join("");
+    box.innerHTML = sw.map(function (x, i) {
+      return '<div class="notice warn swap"><h3>Même coureur ?</h3><p>Dans PhotoFinish, les arrivées notées <strong>' + esc(x.pfStudent.last + " " + x.pfStudent.first) +
+        "</strong> ont les mêmes temps que <strong>" + esc(x.student.last + " " + x.student.first) + "</strong> (" + x.n + " course" + (x.n > 1 ? "s" : "") + " à moins de 2 s), qui n’a aucune vidéo. " +
+        "Le nom a sûrement été mal choisi à l’arrivée.</p>" +
+        '<button type="button" class="btn solid small" data-swap="' + i + '">Ces vidéos sont celles de ' + esc(x.student.first + " " + x.student.last) + "</button></div>";
+    }).join("") + (names.length ? '<div class="notice warn"><h3>' + names.length + " nom" + (names.length > 1 ? "s" : "") + " de PhotoFinish à rattacher</h3>" +
+      "<p>Ces noms ne correspondent à aucun élève de la classe. Choisis le bon élève : ce sera retenu pour les prochaines fois.</p>" +
+      names.map(function (n) { return '<label class="alias"><span>' + esc(n) + '</span><select data-name="' + esc(n) + '">' + opts + "</select></label>"; }).join("") + "</div>" : "");
+    var setAlias = function (pfName, sid) {
+      var hh = H.load(), cc = H.classById(hh, c.id); if (!cc) return;
+      cc.aliases = cc.aliases || {}; cc.aliases[keyOf(pfName)] = sid; H.save(hh);
+      c.aliases[keyOf(pfName)] = sid;
+    };
+    box.querySelectorAll("[data-swap]").forEach(function (bt) {
+      bt.onclick = function () { var x = sw[+bt.dataset.swap]; pfNamesOf(x.pfStudent).forEach(function (n) { setAlias(n, x.student.id); }); refresh(); };
+    });
+    box.querySelectorAll("select[data-name]").forEach(function (sel) {
+      sel.onchange = function () { if (sel.value) { setAlias(sel.dataset.name, sel.value); refresh(); } };
+    });
   }
 
   /* photos d'arrivée PhotoFinish (IndexedDB « chrono-eps ») */

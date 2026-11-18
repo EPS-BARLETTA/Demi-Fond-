@@ -324,3 +324,9 @@ table.ctl tr.warn { background: #fffaf0; }
 .pcard img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 8px; background: var(--line-2); }
 .pcard select, .pcard input { width: 100%; font-size: 15px; padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: #fff; }
 .pcard small { color: var(--muted); font-size: 12px; }
+.alias { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(180px, 1.2fr); gap: 10px; align-items: center; margin-top: 8px; }
+.alias span { font-weight: 650; }
+.alias select { font-size: 16px; padding: 9px; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
+.swap { margin-bottom: 10px; }
+.swap .btn { margin-top: 10px; }
+#unknown .notice + .notice { margin-top: 10px; }

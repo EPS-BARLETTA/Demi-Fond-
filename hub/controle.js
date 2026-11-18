@@ -85,11 +85,15 @@
       co.arrivals.forEach(function (a, ai) {
         var fk = co.key + "|" + (co.group || "") + "|" + ai, fix = fixes[fk];
         var idx = arrivalsIdx[fk] = { fk: fk, co: co, a: a, ai: ai, owner: null, excluded: fix === "none" };
-        if (fix === "none") return;                       // arrivée écartée à la main
+        // L'élève noté dans PhotoFinish garde la place de cette course, même si l'arrivée est écartée ou donnée à un autre.
+        var orig = fix && a.name && !/^non nomm/i.test(a.name) ? matchStudent(a.name) : null;
+        var hole = function (why, to) { if (orig) (video[orig.id] = video[orig.id] || []).push({ hole: true, why: why, to: to, t: a.t, course: ci, fix: fk }); };
+        if (fix === "none") { hole("retirée"); return; }                       // arrivée écartée à la main
         if (!fix && (!a.name || /^non nomm/i.test(a.name))) return;
         var fixSid = fix ? String(fix).split("@")[0] : null, fixRace = fix && String(fix).indexOf("@") > 0 ? +String(fix).split("@")[1] : null;
         var e = fix ? c.students.find(function (x) { return x.id === fixSid; }) : matchStudent(a.name);
         idx.owner = e || null;
+        if (orig && e && orig.id !== e.id) hole("donnée", e);
         var rec = { t: a.t, pid: a.pid, src: a.src, course: ci, rank: ai + 1, title: co.title, group: co.group, fix: fk, pfName: a.name || "", manual: !!fix, race: fixRace };
         if (!e) { unknown.push(Object.assign({ name: a.name }, rec)); return; }
         (video[e.id] = video[e.id] || []).push(rec);
@@ -230,11 +234,14 @@
       }
       // vidéos de l'élève : celles corrigées pour une course précise d'abord, les autres dans l'ordre de la journée
       var raw = video[e.id] || [], vids = [];
+      raw = raw.slice().sort(function (x, y) { return x.course - y.course || (x.t || 0) - (y.t || 0); });
       raw.forEach(function (v) { if (v.race && !vids[v.race - 1]) vids[v.race - 1] = v; });
       raw.forEach(function (v) { if (v.race && vids[v.race - 1] === v) return; var i = 0; while (vids[i]) i++; vids[i] = v; });
+      var holes = vids.map(function (v) { return v && v.hole ? v : null; });
+      vids = vids.map(function (v) { return v && v.hole ? null : v; });
       var n = Math.max(N, vids.length);
       for (var k = 1; k <= n; k++) {
-        var r = { k: k, sid: e.id, v: vids[k - 1] || null, own: null, ownSrc: "", est: null, said: null };
+        var r = { k: k, sid: e.id, v: vids[k - 1] || null, hole: holes[k - 1] || null, own: null, ownSrc: "", est: null, said: null };
         if (s.method === "chrono" && st) {
           if (s.type === "ccf" && st.races && st.races[k]) { r.own = ms(st.races[k].totalMs); r.est = st.races[k].project || null; }
           if (s.type === "exam500" && st.exam500 && st.exam500.races) {
@@ -271,7 +278,7 @@
     if (r.own != null || v) {
       var cls = r.timeOk === true ? "ok" : r.timeOk === false ? "bad" : "";
       lines.push('<span class="' + cls + '">' + (r.ownSrc ? (r.ownSrc === "QR" ? "Élève " : "Fiche ") + fmt(r.own, true) : "") +
-        (v ? (r.ownSrc ? " · " : "") + "Vidéo " + fmt(v.t, true) + (v.manual ? " (corrigé)" : "") : "") +
+        (v ? (r.ownSrc ? " · " : "") + "Vidéo " + fmt(v.t, true) + (v.manual ? " (corrigé)" : "") + ((s.pfOk || {})[v.fix] ? " (vérifiée)" : "") : "") +
         (r.delta != null ? " <b>" + (r.timeOk ? "✓" : "⚠ " + (r.delta > 0 ? "+" : "−") + (Math.abs(r.delta) / 1000).toFixed(1).replace(".", ",") + " s") + "</b>" : "") + "</span>");
     }
     if (r.est || r.said) {
@@ -280,7 +287,8 @@
       lines.push('<span class="' + ec + '">Estim. ' + (r.said ? "fiche " + fe(r.est) + " · annoncée " + fe(r.said) : fe(r.est)) +
         (r.estOk != null ? " <b>" + (r.estOk ? "✓" : "⚠ différente") + "</b>" : "") + "</span>");
     }
-    if (v) lines.push('<button type="button" class="fixbtn"' + fixAttrs + ">Ce n’est pas cet élève ?</button>");
+    if (!v && r.hole) lines.push('<span class="muted">Vidéo ' + (r.hole.why === "retirée" ? "retirée" : "donnée à " + esc(r.hole.to.first + " " + r.hole.to.last)) + '</span><button type="button" class="fixbtn" data-unfix="' + esc(r.hole.fix) + '">Annuler</button>');
+    if (v) lines.push('<button type="button" class="fixbtn"' + fixAttrs + ">Vérifier ou corriger</button>");
     else if (courses.length) lines.push('<button type="button" class="fixbtn pick" data-sid="' + esc(r.sid) + '" data-k="' + r.k + '" data-own="' + (r.own == null ? "" : r.own) + '">Associer une vidéo</button>');
     if (!lines.length) lines.push('<span class="muted">—</span>');
     return '<td><div class="rc">' + parts.join("") + '<div class="rl">' + lines.join("") + "</div></div></td>";
@@ -409,21 +417,49 @@
       pfPhoto(b.dataset.pid).then(function (u) { if (u) b.querySelector("img").src = u; else b.remove(); });
     });
   }
-  /* Correction à la main : cette arrivée filmée appartient à un autre élève (ou à personne) */
-  var fixing = null, fixingRace = null;
+  /* Vérifier une arrivée filmée : c'est bien cet élève (valider), ce n'est personne (retirer), ou un autre élève */
+  var fixing = null, fixingRace = null, fixingSid = null;
   $("table").addEventListener("click", function (e) {
     var pk = e.target.closest(".fixbtn.pick"); if (pk) { openPick(pk.dataset.sid, +pk.dataset.k, pk.dataset.own === "" ? null : +pk.dataset.own); return; }
+    var un = e.target.closest("[data-unfix]"); if (un) { fixing = un.dataset.unfix; saveFix(""); return; }
     var b = e.target.closest(".thumb, .fixbtn"); if (!b || !b.dataset.fix) return;
     var cellEl = b.closest(".rc"), th = cellEl && cellEl.querySelector(".thumb img");
-    fixing = b.dataset.fix; fixingRace = +b.dataset.k || null;
+    fixing = b.dataset.fix; fixingRace = +b.dataset.k || null; fixingSid = b.dataset.sid;
+    var st = c.students.find(function (x) { return x.id === fixingSid; });
+    var x = arrivalsIdx[fixing];
     $("zoomImg").hidden = !(th && th.src); if (th && th.src) $("zoomImg").src = th.src;
-    $("zoomTxt").textContent = b.dataset.txt + (b.dataset.pf ? ". Nom dans PhotoFinish : " + b.dataset.pf + "." : ".");
-    var list = c.students.slice().sort(function (x, y) { return (x.last + x.first).localeCompare(y.last + y.first, "fr"); });
-    $("zoomWho").innerHTML = list.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === b.dataset.sid ? " selected" : "") + ">" + esc(x.last + " " + x.first) + "</option>"; }).join("") +
-      '<option value="none">Personne de la classe (ne pas compter cette arrivée)</option>';
+    $("zoomTitle").textContent = (x ? "Arrivée n° " + (x.ai + 1) + ", " : "") + (x ? fmt(x.a.t, true) : "");
+    $("zoomTxt").textContent = (x ? arrivalLabel(x) + ". " : "") + (b.dataset.pf ? "Nom dans PhotoFinish : " + b.dataset.pf + ". " : "") +
+      (st ? "Comptée pour " + st.first + " " + st.last + (fixingRace ? ", course " + fixingRace : "") + "." : "");
+    $("zoomOk").textContent = st ? "C’est bien " + st.first + " " + st.last : "Valider";
+    $("zoomOk").hidden = !st;
+    var ok = (s.pfOk || {})[fixing];
+    $("zoomOk").setAttribute("aria-pressed", ok ? "true" : "false");
+    $("zoomOkNote").textContent = ok ? "Déjà vérifiée." : "";
     $("zoomReset").hidden = !(s.pfFix && s.pfFix[fixing]);
+    $("zoomFind").value = "";
+    drawWho();
     $("zoom").showModal();
   });
+  var classPhotos = null;
+  function drawWho() {
+    var q = keyOf($("zoomFind").value).split(" ").filter(Boolean);
+    var list = c.students.slice().sort(function (x, y) { return (x.last + x.first).localeCompare(y.last + y.first, "fr"); })
+      .filter(function (x) { var k = keyOf(x.last + " " + x.first); return x.id !== fixingSid && q.every(function (w) { return k.indexOf(w) >= 0; }); });
+    $("zoomWho").innerHTML = list.map(function (x) {
+      var ph = classPhotos && classPhotos[x.id];
+      return '<button type="button" class="who-btn" data-sid="' + esc(x.id) + '">' + (ph ? '<img src="' + ph + '" alt="">' : '<span class="nophoto">' + esc((x.first || "?")[0]) + "</span>") +
+        "<span><strong>" + esc(x.last) + "</strong> " + esc(x.first) + "</span></button>";
+    }).join("") || '<p class="empty">Aucun élève trouvé.</p>';
+  }
+  $("zoomFind").addEventListener("input", drawWho);
+  $("zoomWho").addEventListener("click", function (e) { var b = e.target.closest(".who-btn"); if (b) saveFix(b.dataset.sid); });
+  $("zoomOk").onclick = function () {
+    var hh = H.load(), ss = hh.sessions.find(function (x) { return x.id === s.id; }); if (!ss) return;
+    ss.pfOk = ss.pfOk || {}; ss.pfOk[fixing] = Date.now(); s.pfOk = ss.pfOk; H.save(hh);
+    $("zoom").close(); refresh();
+  };
+  $("zoomRemove").onclick = function () { saveFix("none"); };
   /* Associer une vidéo à un élève depuis sa ligne : toutes les arrivées filmées, les plus proches de son temps d'abord */
   var picking = null, pickRace = null;
   function arrivalLabel(x) {
@@ -485,9 +521,9 @@
     var hh = H.load(), ss = hh.sessions.find(function (x) { return x.id === s.id; }); if (!ss) return;
     ss.pfFix = ss.pfFix || {};
     if (v) ss.pfFix[fixing] = v === "none" || !fixingRace ? v : v + "@" + fixingRace; else delete ss.pfFix[fixing];
+    if (ss.pfOk) { delete ss.pfOk[fixing]; s.pfOk = ss.pfOk; }
     H.save(hh); s.pfFix = ss.pfFix; if ($("zoom").open) $("zoom").close(); refresh();
   }
-  $("zoomSave").onclick = function () { saveFix($("zoomWho").value); };
   $("zoomReset").onclick = function () { saveFix(""); };
   $("zoomClose").onclick = function () { $("zoom").close(); };
   document.querySelector(".seg").addEventListener("click", function (e) {
@@ -507,7 +543,7 @@
   var rows = [], sd = null;
   function refresh() { buildVideo(); rows = build(sd); render(rows); }
   Promise.all([docsState(), H.photosGet(c.students.map(function (e) { return e.id; })), loadImported()]).then(function (r) {
-    sd = r[0]; photos = r[1]; imported = r[2] || [];
+    sd = r[0]; photos = r[1]; classPhotos = r[1]; imported = r[2] || [];
     refresh();
   });
 })();

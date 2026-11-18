@@ -220,7 +220,23 @@
     }
   }
 
+  // Exercices créés par l'application avant ce correctif : sans type, Scan CCF les prenait pour du 2 × 800.
+  function fixScanTypes() {
+    if (tool !== "scan") return;
+    waitFor(function () { return typeof db !== "undefined" && db.groups; }, function () {
+      var n = 0;
+      db.groups.forEach(function (g) { (g.sessions || []).forEach(function (x) {
+        if (x.type) return;
+        var has500 = (x.students || []).some(function (e) { return e.exam500; }), hasCcf = (x.students || []).some(function (e) { return e.races || e.ccf; });
+        if (has500 || (!hasCcf && /3\s*×\s*500/.test(x.label || ""))) { x.type = "exam500"; n++; }
+        else if (!hasCcf && /2\s*×\s*800/.test(x.label || "")) { x.type = "ccf"; n++; }
+      }); });
+      if (n && typeof save === "function") { save(); if (typeof render === "function") render(); }
+    });
+  }
+
   function start() {
+    fixScanTypes();
     if (framed) document.documentElement.classList.add("framed");
     pill(); route();
   }

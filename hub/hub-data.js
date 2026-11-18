@@ -377,7 +377,7 @@
       var g = db.groups.find(function (x) { return x.id === c.id; });
       var lessonId = uid(), exId = uid();
       g.sessions.push({ id: exId, createdAt: Date.now(), lessonId: lessonId, lessonDate: s.date, lessonLabel: "Séance du " + dayLabel(s.date),
-        label: TYPES[opts.type].label + (opts.method === "paper" ? " · fiches papier" : ""), type: opts.method === "paper" ? "ccf" : "", status: "open", students: [] });
+        label: TYPES[opts.type].label + (opts.method === "paper" ? " · fiches papier" : ""), type: opts.type === "exam500" ? "exam500" : opts.type === "ccf" ? "ccf" : "", status: "open", students: [] });
       db.activeGroupId = c.id; db.activeSessionId = exId;
       writeJSON(SCAN_KEY, db);
       s.scanExerciseId = exId;

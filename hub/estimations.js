@@ -67,10 +67,10 @@
     var inputs = [].slice.call($("list").querySelectorAll("input")), i = inputs.indexOf(ev.target);
     ev.target.blur(); if (inputs[i + 1]) inputs[i + 1].focus();
   });
-  document.querySelector(".seg-race").addEventListener("click", function (ev) {
+  document.querySelector(".seg").addEventListener("click", function (ev) {
     var b = ev.target.closest("button"); if (!b) return;
     race = +b.dataset.r;
-    document.querySelectorAll(".seg-race button").forEach(function (x) { x.setAttribute("aria-pressed", String(x === b)); });
+    document.querySelectorAll(".seg button").forEach(function (x) { x.setAttribute("aria-pressed", String(x === b)); });
     render();
   });
   $("find").addEventListener("input", render);

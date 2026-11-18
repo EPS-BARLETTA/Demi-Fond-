@@ -7,6 +7,8 @@
   window.__epsHubHome = true;
 
   var path = location.pathname;
+  var framed = false;
+  try { framed = window.parent !== window && !!window.parent.EPSShell; } catch (e) {}
   var tool = /\/scan\//.test(path) ? "scan" : /\/video\//.test(path) ? "video" : /\/chrono\//.test(path) ? "chrono" : /\/docs\//.test(path) ? "docs" : "";
   var params = new URLSearchParams(location.search);
   // L'ordre de l'accueil est gardé quelques secondes : certains outils se rechargent une fois
@@ -36,7 +38,7 @@
   var TYPE = { training: "Entraînement", ccf: "2 × 800", exam500: "3 × 500" };
 
   function pill() {
-    if (document.getElementById("epsHubHome")) return;
+    if (framed || document.getElementById("epsHubHome")) return;
     var a = document.createElement("a");
     a.id = "epsHubHome";
     a.href = target;
@@ -92,9 +94,11 @@
     document.body.appendChild(b); b.click(); b.remove();
   }
 
-  function route() {
-    if (!go) return;
-    var ex = order.ex, cls = order.cls, tpl = order.tpl;
+  function route(o) {
+    o = o || order;
+    if (!o || !o.go) return;
+    go = o.go;
+    var ex = o.ex, cls = o.cls, tpl = o.tpl;
     clean();
     setTimeout(function () { try { sessionStorage.removeItem(ROUTE); } catch (e) {} }, 4000);
     if (tool === "scan") {
@@ -118,13 +122,23 @@
       });
     } else if (tool === "video") {
       waitFor(function () { return document.getElementById("cvStart"); }, function () {
-        if (go === "film") { setTimeout(function () { document.getElementById("cvStart").click(); toast("La classe de la séance est déjà choisie. Vérifie « Qui court ? » puis ouvre la caméra."); }, 200); }
+        var cover = document.getElementById("cover");
+        if (go === "film" && (!cover || !cover.classList.contains("hidden"))) { setTimeout(function () { document.getElementById("cvStart").click(); toast("La classe de la séance est déjà choisie. Vérifie « Qui court ? » puis ouvre la caméra."); }, 200); }
       });
     } else if (tool === "chrono") {
       if (go === "share") setTimeout(function () { toast("Règle la course, puis touche « Afficher le QR code » : la liste de la classe est jointe au QR code."); }, 600);
     }
   }
 
-  function start() { pill(); route(); }
+  function start() {
+    if (framed) document.documentElement.classList.add("framed");
+    pill(); route();
+  }
+  // Ordre envoyé par l'application quand l'outil est déjà ouvert : on change d'écran sans recharger.
+  window.addEventListener("message", function (e) {
+    if (e.origin !== location.origin || !e.data || e.data.type !== "eps-route") return;
+    var o = { tool: tool, go: e.data.go, ex: e.data.ex, cls: e.data.cls, tpl: e.data.tpl, at: Date.now() };
+    route(o);
+  });
   if (document.body) start(); else document.addEventListener("DOMContentLoaded", start);
 })();

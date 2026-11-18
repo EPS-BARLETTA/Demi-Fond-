@@ -200,10 +200,10 @@
     $("zoomImg").src = img.src; $("zoomTxt").textContent = b.dataset.txt + " · " + b.closest("tr").querySelector(".who").textContent.trim();
     $("zoom").showModal();
   });
-  document.querySelector(".seg-race").addEventListener("click", function (e) {
+  document.querySelector(".seg").addEventListener("click", function (e) {
     var b = e.target.closest("button"); if (!b) return;
     filter = b.dataset.f;
-    document.querySelectorAll(".seg-race button").forEach(function (x) { x.setAttribute("aria-pressed", String(x === b)); });
+    document.querySelectorAll(".seg button").forEach(function (x) { x.setAttribute("aria-pressed", String(x === b)); });
     render(rows);
   });
 

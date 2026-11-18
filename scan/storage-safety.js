@@ -16,6 +16,81 @@
 
 
   /* ========================================
+     COPIES DE SECOURS HORS DE localStorage
+     (Demi-fond EPS) : sur une adresse partagée comme
+     eps-barletta.github.io, les 5 Mo de localStorage sont
+     communs à toutes les applis. Les copies de secours
+     (3 versions + avant import) vont donc dans IndexedDB,
+     seule la base active reste dans localStorage.
+  ======================================== */
+  const isBackupKey = k =>
+    String(k).startsWith(BACKUP_PREFIX) ||
+    String(k).startsWith(BEFORE_IMPORT_KEY);
+
+  const backupCache = new Map();
+  let backupDB = null;
+
+  function openBackupDB() {
+    if (!backupDB) {
+      backupDB = new Promise((resolve, reject) => {
+        const r = indexedDB.open("df-scan-ccf-backups", 1);
+        r.onupgradeneeded = () => r.result.createObjectStore("kv");
+        r.onsuccess = () => resolve(r.result);
+        r.onerror = () => reject(r.error);
+      });
+    }
+    return backupDB;
+  }
+  function idbWrite(k, v) {
+    openBackupDB().then(db => {
+      const t = db.transaction("kv", "readwrite");
+      if (v == null) t.objectStore("kv").delete(k);
+      else t.objectStore("kv").put(String(v), k);
+    }).catch(() => {});
+  }
+  // 1. reprise des anciennes copies présentes dans localStorage, puis libération de la place
+  try {
+    const old = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && isBackupKey(k)) old.push(k);
+    }
+    old.forEach(k => {
+      const v = localStorage.getItem(k);
+      backupCache.set(k, v);
+      idbWrite(k, v);
+      localStorage.removeItem(k);
+    });
+  } catch (e) {}
+  // 2. chargement des copies déjà rangées dans IndexedDB
+  openBackupDB().then(db => {
+    const st = db.transaction("kv").objectStore("kv");
+    const req = st.openCursor();
+    req.onsuccess = () => {
+      const c = req.result;
+      if (!c) return;
+      if (!backupCache.has(c.key)) backupCache.set(c.key, c.value);
+      c.continue();
+    };
+  }).catch(() => {});
+
+  const bkStore = {
+    getItem(k) {
+      if (isBackupKey(k)) return backupCache.has(k) ? backupCache.get(k) : null;
+      return localStorage.getItem(k);
+    },
+    setItem(k, v) {
+      if (isBackupKey(k)) { backupCache.set(k, String(v)); idbWrite(k, v); return; }
+      localStorage.setItem(k, v);
+    },
+    removeItem(k) {
+      if (isBackupKey(k)) { backupCache.delete(k); idbWrite(k, null); return; }
+      localStorage.removeItem(k);
+    }
+  };
+
+
+  /* ========================================
      OUTILS
   ======================================== */
 
@@ -82,26 +157,26 @@
       ) {
 
         const previousRaw =
-          localStorage.getItem(
+          bkStore.getItem(
             BACKUP_PREFIX +
             (i - 1)
           );
 
         const previousDate =
-          localStorage.getItem(
+          bkStore.getItem(
             BACKUP_DATE_PREFIX +
             (i - 1)
           );
 
         if (previousRaw) {
-          localStorage.setItem(
+          bkStore.setItem(
             BACKUP_PREFIX + i,
             previousRaw
           );
         }
 
         if (previousDate) {
-          localStorage.setItem(
+          bkStore.setItem(
             BACKUP_DATE_PREFIX + i,
             previousDate
           );
@@ -109,12 +184,12 @@
       }
 
 
-      localStorage.setItem(
+      bkStore.setItem(
         BACKUP_PREFIX + "1",
         currentRaw
       );
 
-      localStorage.setItem(
+      bkStore.setItem(
         BACKUP_DATE_PREFIX + "1",
         String(Date.now())
       );
@@ -140,7 +215,7 @@
       JSON.stringify(db);
 
     const currentRaw =
-      localStorage.getItem(KEY);
+      bkStore.getItem(KEY);
 
 
     /*
@@ -160,12 +235,12 @@
 
     try {
 
-      localStorage.setItem(
+      bkStore.setItem(
         KEY,
         nextRaw
       );
 
-      localStorage.setItem(
+      bkStore.setItem(
         `${KEY}-last-save`,
         String(Date.now())
       );
@@ -566,16 +641,16 @@
       */
 
       const currentRaw =
-        localStorage.getItem(KEY);
+        bkStore.getItem(KEY);
 
       if (currentRaw) {
 
-        localStorage.setItem(
+        bkStore.setItem(
           BEFORE_IMPORT_KEY,
           currentRaw
         );
 
-        localStorage.setItem(
+        bkStore.setItem(
           BEFORE_IMPORT_DATE_KEY,
           String(Date.now())
         );
@@ -669,7 +744,7 @@
     ) {
 
       const raw =
-        localStorage.getItem(
+        bkStore.getItem(
           BACKUP_PREFIX + i
         );
 
@@ -685,7 +760,7 @@
         raw,
 
         date:
-          localStorage.getItem(
+          bkStore.getItem(
             BACKUP_DATE_PREFIX + i
           )
 
@@ -695,7 +770,7 @@
 
 
     const beforeImport =
-      localStorage.getItem(
+      bkStore.getItem(
         BEFORE_IMPORT_KEY
       );
 
@@ -711,7 +786,7 @@
           beforeImport,
 
         date:
-          localStorage.getItem(
+          bkStore.getItem(
             BEFORE_IMPORT_DATE_KEY
           ),
 
@@ -838,7 +913,7 @@
     */
 
     const currentRaw =
-      localStorage.getItem(KEY);
+      bkStore.getItem(KEY);
 
     if (currentRaw) {
 
@@ -853,7 +928,7 @@
       recovered;
 
 
-    localStorage.setItem(
+    bkStore.setItem(
       KEY,
       JSON.stringify(db)
     );

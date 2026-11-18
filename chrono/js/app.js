@@ -1,0 +1,8028 @@
+"use strict";
+
+(() => {
+
+  const KEY = "chronoCarnetEPS_v4";
+  const CARNET_URL = "https://carnetentrainementv2.vercel.app/";
+  const $ = id => document.getElementById(id);
+
+
+  /* =========================================================
+     BAREMES CCF EXISTANTS — NE PAS MODIFIER
+  ========================================================= */
+
+  const PERF_F = [
+    [306,.25],[299,.5],[292,.75],[285,1],
+    [278,1.25],[272,1.5],[266,1.75],[260,2],
+    [254,2.25],[248,2.5],[242,2.75],[236,3],
+    [230,3.25],[225,3.5],[220,3.75],[215,4],
+    [210,4.25],[205,4.5],[200,4.75],[195,5],
+    [190,5.25],[185,5.5],[180,5.75],[175,6]
+  ];
+
+  const PERF_M = [
+    [242,.25],[237,.5],[232,.75],[227,1],
+    [222,1.25],[217,1.5],[212,1.75],[207,2],
+    [202,2.25],[197,2.5],[192,2.75],[188,3],
+    [184,3.25],[180,3.5],[176,3.75],[172,4],
+    [168,4.25],[165,4.5],[162,4.75],[159,5],
+    [156,5.25],[153,5.5],[150,5.75],[147,6]
+  ];
+
+
+  /* =========================================================
+     ETAT
+  ========================================================= */
+
+  const base = () => ({
+    mode: "training",
+    trainingTool: "simple",
+    view: "setup",
+
+    totalDistance: 1000,
+    splitDistance: 100,
+    displayMode: "both",
+    targetMs: null,
+
+    chronoPlanMode: "single",
+    chronoSeriesText: "100 200 300 200 100",
+    chronoSeriesDistances: [100,200,300,200,100],
+    chronoSeriesWithSplits: false,
+    chronoSingleWithSplits: true,
+    projectionTarget: "off",
+    projectionCustomDistance: 1000,
+
+    timerDurationChoice: "360",
+    timerDurationMs: 360000,
+
+    trackDistanceChoice: "300",
+    trackDistance: 300,
+
+    vmaProtocol: "6",
+    vmaDurationMs: 360000,
+
+    vmaTrackDistanceChoice: "300",
+    vmaTrackDistance: 300,
+
+    runners: [],
+    results: [],
+    timedRuns: [],
+    exam500Supervised: false,
+    exam500EstimateC3: false,
+    exam500Level: "premiere",
+    exam500Regularity: "c1c2",
+    exam500Validations: [],
+
+    activeRace: 1,
+    activeRunnerId: null,
+
+    recoveryStartedAt: null
+  });
+
+
+  let state;
+
+  try {
+
+    state = {
+      ...base(),
+      ...JSON.parse(
+        localStorage.getItem(KEY) || "{}"
+      )
+    };
+
+  } catch {
+
+    state = base();
+
+  }
+
+
+  /* Compatibilité avec les anciennes données */
+
+  if (!["training","ccf","exam500"].includes(state.mode)) {
+    state.mode = "training";
+  }
+
+  if (!["simple","chrono","timer","vma"].includes(state.trainingTool)) {
+    state.trainingTool = "simple";
+  }
+
+  if (!["single","series"].includes(state.chronoPlanMode)) {
+    state.chronoPlanMode = "single";
+  }
+
+  if (!Array.isArray(state.chronoSeriesDistances)) {
+    state.chronoSeriesDistances = [100,200,300,200,100];
+  }
+
+  if (!state.chronoSeriesText) {
+    state.chronoSeriesText =
+      state.chronoSeriesDistances.join(" ");
+  }
+
+  state.chronoSeriesWithSplits =
+    !!state.chronoSeriesWithSplits;
+
+  state.chronoSingleWithSplits = state.chronoSingleWithSplits !== false;
+  if (!["off", "800", "500", "custom"].includes(state.projectionTarget)) state.projectionTarget = "off";
+  state.projectionCustomDistance = Math.min(10000, Math.max(50, Number(state.projectionCustomDistance) || 1000));
+
+  if (!Array.isArray(state.timedRuns)) {
+    state.timedRuns = [];
+  }
+
+  state.runners = Array.isArray(state.runners)
+    ? state.runners.map(runner => ({
+        ...runner,
+        stopped: !!runner.stopped,
+        stoppedReason: runner.stoppedReason || "",
+        stoppedAt: runner.stoppedAt || null,
+        stoppedRace: runner.stoppedRace || null,
+        stoppedOnlyRaces: Array.isArray(runner.stoppedOnlyRaces) ? runner.stoppedOnlyRaces : []
+      }))
+    : [];
+
+  if (!state.timerDurationChoice) {
+    state.timerDurationChoice =
+      [180000,360000,540000,720000,900000,1200000]
+        .includes(state.timerDurationMs)
+        ? String(state.timerDurationMs / 1000)
+        : "custom";
+  }
+
+  if (!state.trackDistanceChoice) {
+    state.trackDistanceChoice =
+      [100,200,250,300,400].includes(state.trackDistance)
+        ? String(state.trackDistance)
+        : "custom";
+  }
+
+  if (!state.vmaProtocol) {
+    state.vmaProtocol =
+      state.vmaDurationMs === 720000
+        ? "12"
+        : state.vmaDurationMs === 360000
+          ? "6"
+          : "custom";
+  }
+
+  if (!state.vmaTrackDistanceChoice) {
+    state.vmaTrackDistanceChoice =
+      [100,200,250,300,400].includes(state.vmaTrackDistance)
+        ? String(state.vmaTrackDistance)
+        : "custom";
+  }
+
+
+  state.exam500Supervised = !!state.exam500Supervised;
+  state.exam500EstimateC3 = !!state.exam500EstimateC3;
+  state.exam500Level = state.exam500Level === "seconde" ? "seconde" : "premiere";
+  state.exam500Regularity = state.exam500Regularity === "three" ? "three" : "c1c2";
+  if (!Array.isArray(state.exam500Validations)) state.exam500Validations = [];
+
+  let running = false;
+  let startedAt = 0;
+  let elapsedMs = 0;
+
+  let recoveryTimer = null;
+  let exportRunnerId = null;
+  let pendingSharedChronoCfg = null;
+  let sharedStudentWelcome = false;
+
+  let timedLapCount = 0;
+  let timedFinished = false;
+  let timedActualDurationMs = 0;
+
+  let lapLockedUntil = 0;
+
+
+  /* =========================================================
+     UTILITAIRES
+  ========================================================= */
+
+  const save = () =>
+    localStorage.setItem(
+      KEY,
+      JSON.stringify(state)
+    );
+
+
+  const uid = () =>
+    Date.now().toString(36) +
+    Math.random()
+      .toString(36)
+      .slice(2,7);
+
+
+  const esc = v =>
+    String(v ?? "")
+      .replace(
+        /[&<>"']/g,
+        c => ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;"
+        }[c])
+      );
+
+
+  const fmt = ms => {
+
+    ms = Math.max(
+      0,
+      Math.round(ms || 0)
+    );
+
+    const cs =
+      Math.floor(ms % 1000 / 10);
+
+    const s =
+      Math.floor(ms / 1000) % 60;
+
+    const m =
+      Math.floor(ms / 60000);
+
+    return (
+      `${String(m).padStart(2,"0")}:` +
+      `${String(s).padStart(2,"0")}.` +
+      `${String(cs).padStart(2,"0")}`
+    );
+
+  };
+
+
+  const fmtClock = ms => {
+
+    ms = Math.max(
+      0,
+      Math.ceil(ms || 0)
+    );
+
+    const s =
+      Math.floor(ms / 1000) % 60;
+
+    const m =
+      Math.floor(ms / 60000);
+
+    return (
+      `${String(m).padStart(2,"0")}:` +
+      `${String(s).padStart(2,"0")}`
+    );
+
+  };
+
+
+  const short = ms =>
+    `${(
+      Math.abs(ms || 0) / 1000
+    ).toFixed(2)} s`;
+
+
+  const now = () =>
+    elapsedMs +
+    (
+      running
+        ? performance.now() - startedAt
+        : 0
+    );
+
+
+  const spd = (distanceM, timeMs) =>
+    timeMs
+      ? distanceM / (timeMs / 1000) * 3.6
+      : 0;
+
+
+  const signed = v =>
+    v == null
+      ? "—"
+      : `${v > 0 ? "+" : v < 0 ? "−" : "±"}${short(v)}`;
+
+
+  const isExam500 = () =>
+    state.mode === "exam500";
+
+  const isExamMode = () =>
+    state.mode === "ccf" ||
+    isExam500();
+
+  const isChronoSeries = () =>
+    isChrono() &&
+    state.chronoPlanMode === "series";
+
+  function parseSeriesDistances(value) {
+    return String(value || "")
+      .split(/[\s,;\-→>]+/)
+      .map(Number)
+      .filter(
+        distance =>
+          Number.isFinite(distance) &&
+          distance > 0 &&
+          distance <= 10000
+      )
+      .slice(0,20);
+  }
+
+  const raceDistance = (
+    race = state.activeRace
+  ) => {
+    if (isExam500()) {
+      return 500;
+    }
+
+    if (isChronoSeries()) {
+      return (
+        Number(
+          state.chronoSeriesDistances[
+            Math.max(0, race - 1)
+          ]
+        ) ||
+        state.totalDistance
+      );
+    }
+
+    return state.totalDistance;
+  };
+
+  const raceSplitDistance = (
+    race = state.activeRace
+  ) => {
+    if (isExam500()) {
+      return 250;
+    }
+
+    const distance =
+      raceDistance(race);
+
+    if (
+      isChrono() &&
+      !(isChronoSeries() ? state.chronoSeriesWithSplits : state.chronoSingleWithSplits)
+    ) {
+      return distance;
+    }
+
+    const split =
+      Number(state.splitDistance);
+
+    if (
+      isChronoSeries() &&
+      (
+        !split ||
+        split >= distance ||
+        distance % split !== 0
+      )
+    ) {
+      return distance;
+    }
+
+    return split;
+  };
+
+  const raceCount = () =>
+    isExam500()
+      ? 3
+      : state.mode === "ccf"
+        ? 2
+        : isChronoSeries()
+          ? state.chronoSeriesDistances.length
+          : 1;
+
+
+  const isSimple = () =>
+    state.mode === "training" &&
+    state.trainingTool === "simple";
+
+
+  const isChrono = () =>
+    state.mode === "training" &&
+    state.trainingTool === "chrono";
+
+
+  const isTimed = () =>
+    state.mode === "training" &&
+    ["timer","vma"].includes(
+      state.trainingTool
+    );
+
+
+  function setVisible(id, visible) {
+
+    const el = $(id);
+
+    if (el) {
+      el.classList.toggle(
+        "hidden",
+        !visible
+      );
+    }
+
+  }
+
+
+  function parseTime(v) {
+
+    if (!v) {
+      return null;
+    }
+
+    v =
+      String(v)
+        .trim()
+        .replace(/,/g,".");
+
+    let m =
+      v.match(
+        /^(\d+)\s*:\s*(\d+(?:\.\d+)?)$/
+      );
+
+    if (m) {
+
+      return (
+        +m[1] * 60 +
+        +m[2]
+      ) * 1000;
+
+    }
+
+    m =
+      v.match(
+        /^(\d+(?:\.\d+)?)$/
+      );
+
+    if (!m) {
+      return null;
+    }
+
+    if (
+      /^\d{3,4}$/.test(v)
+    ) {
+      const digits =
+        v.replace(/\D/g,"");
+
+      const sec =
+        Number(
+          digits.slice(-2)
+        );
+
+      const min =
+        Number(
+          digits.slice(0,-2)
+        );
+
+      if (sec < 60) {
+        return (
+          min * 60 +
+          sec
+        ) * 1000;
+      }
+    }
+
+    return +m[1] * 1000;
+
+  }
+
+
+  function safeQrText(value) {
+
+    return String(value ?? "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g,"")
+      .replace(/[’‘‛]/g,"'")
+      .replace(/[‐‑‒–—―]/g,"-")
+      .replace(/[\u0000-\u001F\u007F]/g," ")
+      .replace(/[^A-Za-z0-9 .,'_\-\/]/g," ")
+      .replace(/\s+/g," ")
+      .trim();
+
+  }
+
+
+  function stableStudentId(last,first,cls) {
+
+    const s =
+      `${String(last).trim().toUpperCase()}|` +
+      `${String(first).trim().toUpperCase()}|` +
+      `${String(cls).trim().toUpperCase()}`;
+
+    let h = 2166136261;
+
+    for (
+      let i = 0;
+      i < s.length;
+      i++
+    ) {
+
+      h ^= s.charCodeAt(i);
+
+      h =
+        Math.imul(
+          h,
+          16777619
+        );
+
+    }
+
+    return (
+      `STD-${
+        (h >>> 0)
+          .toString(16)
+          .padStart(8,"0")
+      }`
+    );
+
+  }
+
+
+  function toast(t) {
+
+    $("toast").textContent = t;
+    $("toast").hidden = false;
+
+    clearTimeout(toast.t);
+
+    toast.t =
+      setTimeout(
+        () =>
+          $("toast").hidden = true,
+        2200
+      );
+
+  }
+
+
+  function showLapValidatedPopup() {
+
+    let popup =
+      $("lapValidatedPopup");
+
+    if (!popup) {
+
+      popup =
+        document.createElement(
+          "div"
+        );
+
+      popup.id =
+        "lapValidatedPopup";
+
+      Object.assign(
+        popup.style,
+        {
+          position: "fixed",
+          left: "50%",
+          top: "46%",
+          transform: "translate(-50%,-50%) scale(.72) rotate(-4deg)",
+          zIndex: "9999",
+          width: "min(300px,72vw)",
+          height: "min(300px,72vw)",
+          borderRadius: "50%",
+          background: "linear-gradient(145deg,#faff00,#39ff88 55%,#00e5ff)",
+          color: "#052e16",
+          border: "6px solid rgba(255,255,255,.95)",
+          fontWeight: "900",
+          fontSize: "clamp(24px,6vw,34px)",
+          lineHeight: "1.05",
+          textAlign: "center",
+          boxShadow: "0 0 0 8px rgba(57,255,136,.28),0 18px 55px rgba(0,229,255,.35)",
+          opacity: "0",
+          pointerEvents: "none",
+          transition: "opacity .16s ease, transform .22s cubic-bezier(.2,1.45,.4,1)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexDirection: "column"
+        }
+      );
+
+      popup.innerHTML =
+        '<span style="font-size:64px;line-height:.9">✓</span>' +
+        '<span>TOUR<br>VALIDÉ !</span>' +
+        '<span style="font-size:22px;margin-top:10px">⚡</span>';
+
+      document.body.appendChild(
+        popup
+      );
+
+    }
+
+    clearTimeout(
+      showLapValidatedPopup.t
+    );
+
+    popup.style.opacity =
+      "0";
+
+    popup.style.transform =
+      "translate(-50%,-50%) scale(.72) rotate(-4deg)";
+
+    requestAnimationFrame(
+      () =>
+        requestAnimationFrame(
+          () => {
+            popup.style.opacity =
+              "1";
+            popup.style.transform =
+              "translate(-50%,-50%) scale(1) rotate(0deg)";
+          }
+        )
+    );
+
+    showLapValidatedPopup.t =
+      setTimeout(
+        () => {
+          popup.style.opacity =
+            "0";
+          popup.style.transform =
+            "translate(-50%,-50%) scale(1.12) rotate(3deg)";
+        },
+        3000
+      );
+
+  }
+
+
+  function confirmLapRecorded() {
+
+    // Mode examen : verrou court pour ne pas bloquer le coureur suivant.
+    const lockMs = supervised500() ? 350 : 3000;
+    lapLockedUntil = performance.now() + lockMs;
+
+    const button =
+      $("lapBtn");
+
+    if (button) {
+
+      button.textContent =
+        "✓ TOUR VALIDÉ";
+
+      button.disabled =
+        true;
+
+      setTimeout(() => {
+        if ($("lapBtn")) {
+          $("lapBtn").textContent=lapActionLabel();
+          // Le bouton était laissé désactivé après le verrouillage de 3 s.
+          $("lapBtn").disabled=!running || performance.now()<lapLockedUntil;
+        }
+      }, lockMs+30);
+
+    }
+
+    showLapValidatedPopup();
+
+    navigator.vibrate?.(35);
+
+  }
+
+
+  /* =========================================================
+     RESULTATS CLASSIQUES / CCF
+  ========================================================= */
+
+
+  /* Examen surveille : le temps brut et la validation sont conserves separement. */
+  const supervised500 = () => isExam500() && state.exam500Supervised;
+  const validation500 = (id,race) => state.exam500Validations.find(v => v.runnerId === id && v.race === race);
+  const pending500 = () => supervised500() && state.exam500Validations.some(v => v.status === "pending");
+  function refreshSupervised500() {
+    const on = supervised500();
+    document.body.classList.toggle("supervised500",on);
+    const panel = $("exam500SupervisionConfig");
+    if (panel) panel.classList.toggle("hidden",!isExam500());
+    const toggle = $("exam500SupervisionToggle");
+    if (toggle) toggle.checked = !!state.exam500Supervised;
+    document.querySelectorAll('[name="exam500LevelChoice"]').forEach(el => {
+      el.checked = el.value === state.exam500Level;
+      el.disabled = running || state.results.length > 0;
+    });
+    state.exam500Regularity = state.exam500EstimateC3 ? "three" : "c1c2";
+    document.querySelectorAll('[name="exam500AnnouncementChoice"]').forEach(el => {
+      el.checked = el.value === (state.exam500EstimateC3 ? "3" : "2");
+      el.disabled = running || state.results.length > 0;
+    });
+    const c3Panel = $("exam500C3Config");
+    if (c3Panel) c3Panel.classList.toggle("hidden",!isExam500());
+    const c3Toggle = $("exam500C3Toggle");
+    if (c3Toggle) {
+      c3Toggle.checked = !!state.exam500EstimateC3;
+      c3Toggle.disabled = isExam500() && (running ||
+        state.results.some(x => x.race >= 1));
+    }
+    const banner = $("exam500SupervisionBanner");
+    if (banner) banner.classList.toggle("hidden",!on);
+  }
+  function openValidation500(r,race,originalMs) {
+    let v=validation500(r.id,race);
+    if (!v) {
+      v={runnerId:r.id,race,rawMs:Math.round(originalMs),teacherMs:null,
+        deltaMs:null,status:"pending",observerId:state.runners.find(x=>x.id!==r.id)?.id||null};
+      state.exam500Validations.push(v);
+      save();
+    }
+    // Une annonce de temps ouverte avec showModal() reste dans la top layer
+    // Safari et masque tout panneau HTML, même avec z-index maximal.
+    // La fermer explicitement avant d'afficher la validation professeur.
+    const estimate=$("exam500EstimateDialog");
+    if (estimate) {
+      try { if (estimate.open) estimate.close(); } catch (_) {}
+      estimate.removeAttribute("open");
+      estimate.style.display="none";
+    }
+    // Aucun autre dialogue natif ne doit recouvrir la validation.
+    document.querySelectorAll("dialog[open]").forEach(d=>{
+      try { d.close(); } catch (_) { d.removeAttribute("open"); }
+    });
+    document.getElementById("exam500ValidationOverlay")?.remove();
+    document.getElementById("exam500ValidationDialog")?.remove();
+    const host=document.querySelector(".timerCard");
+    if (!host) { alert("Validation professeur indisponible : écran chronomètre introuvable."); return; }
+    const dialog=document.createElement("section");
+    dialog.id="exam500ValidationDialog";
+    dialog.setAttribute("role","dialog");
+    dialog.setAttribute("aria-modal","true");
+    dialog.dataset.runnerId=r.id;
+    dialog.dataset.race=String(race);
+    dialog.style.cssText="display:flex!important;flex-direction:column!important;gap:14px!important;box-sizing:border-box!important;width:calc(100% - 28px)!important;max-width:650px!important;margin:20px auto!important;overflow:visible!important;padding:24px!important;background:white!important;color:#172033!important;border:5px solid #be123c!important;border-radius:18px!important;font:600 18px system-ui,sans-serif!important;box-shadow:0 12px 35px #0004!important;";
+    dialog.innerHTML='<h2 style="all:revert;margin:0;font-size:25px;color:#881337">Validation professeur · 500 m n°'+race+'</h2>'+
+      '<p style="margin:0;font-size:23px;font-weight:900">'+esc(r.name)+'</p>'+
+      '<p style="margin:0">Temps observateur : <strong style="font-size:32px;color:#111827">'+fmt(v.rawMs)+'</strong></p>'+
+      '<label style="display:block">Observateur<select id="exam500ValidationObserver" style="display:block;width:100%;padding:12px;font-size:18px;margin-top:8px">'+
+      '<option value="">Non renseigné</option>'+state.runners.filter(x=>x.id!==r.id).map(x=>'<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>').join("")+'</select></label>'+
+      '<p style="margin:0;font-size:15px">Compare le chrono de l\'observateur avec celui du professeur.</p>'+
+      '<div id="exam500ValidationError" style="color:#be123c;font-weight:800"></div>'+
+      '<button id="exam500ValidationOk" type="button" style="display:block;padding:16px;background:#15803d;color:white;border:0;border-radius:10px;font-size:19px;font-weight:900">✓ OK — temps confirmé</button>'+
+      '<button id="exam500ValidationNo" type="button" style="display:block;padding:16px;background:#be123c;color:white;border:0;border-radius:10px;font-size:19px;font-weight:900">✕ NON — corriger le temps</button>'+
+      '<div id="exam500CorrectionFields" style="display:none"><label>Temps professeur (135 = 1 min 35 s)<input id="exam500TeacherTime" type="text" inputmode="decimal" placeholder="135 ou 1:35" style="display:block;width:100%;box-sizing:border-box;padding:14px;font-size:22px;margin:8px 0"></label>'+
+      '<button id="exam500ValidationConfirm" type="button" style="display:block;width:100%;padding:16px;background:#15803d;color:white;border:0;border-radius:10px;font-size:18px;font-weight:900">Enregistrer le temps professeur</button></div>';
+    // Panneau intégré au chronomètre : aucun overlay, aucune top layer Safari.
+    const controls=host.querySelector("#startBtn")?.parentElement;
+    if (controls && controls.parentElement===host) host.insertBefore(dialog,controls);
+    else host.appendChild(dialog);
+    dialog.scrollIntoView({block:"center",behavior:"auto"});
+    document.getElementById("exam500ValidationObserver").value=v.observerId||"";
+    document.getElementById("exam500ValidationOk").onclick=()=>finishValidation500(false);
+    document.getElementById("exam500ValidationNo").onclick=()=>{
+      document.getElementById("exam500CorrectionFields").style.display="block";
+      document.getElementById("exam500TeacherTime").focus();
+    };
+    document.getElementById("exam500ValidationConfirm").onclick=()=>finishValidation500(true);
+  }
+  function finishValidation500(corrected) {
+    const dialog=$("exam500ValidationDialog");
+    const id=dialog.dataset.runnerId,race=Number(dialog.dataset.race);
+    const v=validation500(id,race);
+    if (!v || v.status!=="pending") return;
+    const observerId=$("exam500ValidationObserver").value;
+    // L'identification est facultative et ne bloque pas la validation du temps.
+    let teacherMs=v.rawMs;
+    if (corrected) {
+      const val=$("exam500TeacherTime").value.trim();
+      const match=val.match(/^(?:(\d{1,2}):)?(\d{1,3})(?:[.,](\d{1,2}))?$/);
+      if(!match || (match[1] && Number(match[2])>=60)){$("exam500ValidationError").textContent="Saisis 135 pour 1 min 35, ou 1:35.";return;}
+      const fraction=Number((match[3]||"").padEnd(2,"0"))*10;
+      if(match[1]) teacherMs=(Number(match[1])*60+Number(match[2]))*1000+fraction;
+      else if(!match[3] && val.length===3 && Number(val[0])>0 && Number(val.slice(1))<60)
+        teacherMs=(Number(val[0])*60+Number(val.slice(1)))*1000;
+      else teacherMs=Number(match[2])*1000+fraction;
+      if (teacherMs < 10000 || teacherMs > 900000) {
+        $("exam500ValidationError").textContent="Temps hors limites. Exemple : 1:40.";return;
+      }
+    }
+    v.observerId=observerId || null;
+    v.teacherMs=teacherMs;
+    v.deltaMs=teacherMs-v.rawMs;
+    v.status=corrected?"corrected":"approved";
+    v.validatedAt=new Date().toISOString();
+    if (corrected) {
+      const arr=rr(id,race);
+      const finish=arr.find(x=>x.passage===2);
+      if (finish) {
+        finish.cumulativeMs=teacherMs;
+        finish.lapMs=Math.max(0,teacherMs-(arr[0]?.cumulativeMs||0));
+        finish.speed=finish.lapMs>0?spd(250,finish.lapMs):0;
+        finish.teacherCorrected=true;
+      }
+    }
+    // Enchaînement déterministe : toujours fermer la modale, puis sélectionner
+    // le prochain coureur non terminé, ou le 500 m suivant.
+    dialog.remove();
+    if (supervised500()) {
+      // Ne sélectionner le suivant qu'après validation de ce coureur.
+      // La course courante est fixée par le dialogue, jamais par un état UI périmé.
+      const next=state.runners.find(r=>r.id!==id && !done(r.id,race));
+      resetClock();
+      if (next) {
+        state.activeRace=race;
+        state.activeRunnerId=next.id;
+        // Remettre le chrono à zéro après le changement d'élève également.
+        resetClock();
+        save();
+        renderPerf();
+        renderTimer();
+        if ($("startBtn")) $("startBtn").disabled=false;
+        toast("PRÊT : "+next.name+" · 500 m n°"+race);
+        return;
+      }
+      if (race<raceCount() && allDone(race)) {
+        state.activeRace=race+1;
+        state.activeRunnerId=state.runners.find(r=>!done(r.id,race+1))?.id||state.runners[0]?.id||null;
+        resetClock();
+        save();
+        renderPerf();
+        renderTimer();
+        if ($("startBtn")) $("startBtn").disabled=false;
+        toast("PRÊT : 500 m n°"+state.activeRace+" · "+(activeRunner()?.name||""));
+        // L'annonce préalable du temps pour la 2e course reste obligatoire.
+        if (race+1===2 && state.runners.some(r=>!r.project2Ms)) {
+          openRaceEstimates(2,()=>{resetClock();save();renderPerf();});
+        }
+        if (race+1===3 && state.exam500EstimateC3 && state.runners.some(r=>!r.project3Ms)) {
+          openRaceEstimates(3,()=>{resetClock();save();renderPerf();});
+        }
+        return;
+      }
+      save();
+      renderPerf();
+      toast("Les trois 500 m sont terminés · QR professeur disponible");
+      return;
+    }
+    save();
+    renderPerf();
+  }
+  function observerAudit500(id) {
+    const observations=state.exam500Validations.filter(v=>v.observerId===id && v.status!=="pending");
+    return {correct:observations.filter(v=>v.status==="approved").length,total:observations.length,expected:3,
+      score:observations.filter(v=>v.status==="approved").length+"/3",
+      details:observations.map(v=>({race:v.race,runnerId:v.runnerId,correct:v.status==="approved",
+        observerMs:v.rawMs,teacherMs:v.teacherMs,deltaMs:v.deltaMs}))};
+  }
+
+  const rr = (
+    id,
+    race = state.activeRace
+  ) =>
+    state.results.filter(
+      x =>
+        x.runnerId === id &&
+        x.race === race
+    );
+
+
+  const requiredSplits = (
+    race = state.activeRace
+  ) =>
+    Math.max(
+      1,
+      Math.floor(
+        raceDistance(race) /
+        raceSplitDistance(race)
+      )
+    );
+
+
+  const activeRunner = () =>
+    state.runners.find(
+      r =>
+        r.id === state.activeRunnerId
+    ) || null;
+
+
+  const runnerStopped = (id, race = state.activeRace) =>
+    !!state.runners.find(runner =>
+      runner.id === id &&
+      ((runner.stopped && Number(race) >= Number(runner.stoppedRace || 1)) ||
+       (runner.stoppedOnlyRaces || []).includes(Number(race)))
+    );
+
+
+  const done = (
+    id,
+    race = state.activeRace
+  ) =>
+    runnerStopped(id,race) ||
+    rr(id,race).length >=
+    requiredSplits(race);
+
+
+  const allDone = race =>
+    state.runners.length > 0 &&
+    state.runners.every(
+      r =>
+        done(r.id,race)
+    );
+
+
+  const timedRunFor = (
+    id,
+    tool = state.trainingTool
+  ) =>
+    state.timedRuns.find(
+      x =>
+        x.runnerId === id &&
+        x.tool === tool
+    ) || null;
+
+
+  /* =========================================================
+     CCF
+  ========================================================= */
+
+  function perfPoints(sex,ms) {
+
+    if (!ms) {
+      return 0;
+    }
+
+    let p = 0;
+
+    for (
+      const [limit,pts]
+      of
+      (
+        sex === "F"
+          ? PERF_F
+          : PERF_M
+      )
+    ) {
+
+      if (
+        ms / 1000 <= limit
+      ) {
+        p = pts;
+      }
+
+    }
+
+    return p;
+
+  }
+
+
+  function regularityPoints(ms) {
+
+    if (ms == null) return 0;
+
+    const s = ms / 1000;
+
+    if (s > 21) return 0;
+    if (s >= 20) return .5;
+    if (s >= 18) return 1;
+    if (s >= 16) return 1.5;
+    if (s >= 14) return 2;
+    if (s >= 12) return 2.5;
+    if (s >= 10) return 3;
+    if (s >= 9) return 3.5;
+    if (s >= 8) return 4;
+    if (s >= 7) return 4.5;
+    if (s >= 6) return 5;
+    if (s >= 5) return 5.5;
+    if (s < 4) return 6;
+
+    return 5.5;
+
+  }
+
+
+  function ccfSummary(r) {
+
+    const a1 = rr(r.id,1);
+    const a2 = rr(r.id,2);
+
+    const t1 =
+      a1.length === 4
+        ? a1.at(-1).cumulativeMs
+        : null;
+
+    const t2 =
+      a2.length === 4
+        ? a2.at(-1).cumulativeMs
+        : null;
+
+    const laps = [
+      ...a1,
+      ...a2
+    ].map(
+      x => x.lapMs
+    );
+
+    const best =
+      [t1,t2]
+        .filter(Boolean)
+        .sort((a,b) => a-b)[0] ||
+      null;
+
+    const spread =
+      laps.length === 8
+        ? Math.max(...laps) -
+          Math.min(...laps)
+        : null;
+
+    const perf =
+      perfPoints(
+        r.sex,
+        best
+      );
+
+    const reg =
+      regularityPoints(
+        spread
+      );
+
+    return {
+      t1,
+      t2,
+      best,
+      spread,
+      perf,
+      reg,
+      total: perf + reg,
+      complete:
+        !!(
+          t1 &&
+          t2 &&
+          laps.length === 8
+        )
+    };
+
+  }
+
+
+  /* =========================================================
+     CONFIGURATION
+  ========================================================= */
+
+  function readConfig() {
+
+    if (
+      state.mode === "ccf"
+    ) {
+
+      state.totalDistance = 800;
+      state.splitDistance = 200;
+      state.displayMode = "cumulative";
+
+      return;
+
+    }
+
+    if (isExam500()) {
+
+      state.totalDistance = 500;
+      state.splitDistance = 250;
+      state.displayMode = "cumulative";
+
+      return;
+
+    }
+
+
+    if (
+      state.trainingTool === "chrono"
+    ) {
+
+      state.chronoPlanMode =
+        $("chronoPlanMode")?.value === "series"
+          ? "series"
+          : "single";
+
+      state.chronoSeriesText =
+        $("chronoSeriesText")?.value?.trim() ||
+        state.chronoSeriesText;
+
+      const parsedSeries =
+        parseSeriesDistances(
+          state.chronoSeriesText
+        );
+
+      if (parsedSeries.length) {
+        state.chronoSeriesDistances =
+          parsedSeries;
+      }
+
+      if (state.chronoPlanMode === "series") {
+        state.chronoSeriesWithSplits = $("chronoSeriesWithSplits")?.value === "yes";
+      } else {
+        state.chronoSingleWithSplits = $("chronoSeriesWithSplits")?.value === "yes";
+      }
+
+      state.totalDistance =
+        $("totalDistance").value === "custom"
+          ? Math.max(
+              1,
+              +$("customDistance").value || 1
+            )
+          : +$("totalDistance").value;
+
+
+      state.splitDistance =
+        $("splitDistance").value === "custom"
+          ? Math.max(
+              1,
+              +$("customSplit").value || 1
+            )
+          : +$("splitDistance").value;
+
+
+      state.displayMode =
+        $("displayMode").value;
+
+
+      state.targetMs =
+        state.chronoPlanMode === "series"
+          ? null
+          : parseTime(
+              $("targetTime").value
+            );
+
+    }
+
+
+    if (
+      state.trainingTool === "timer"
+    ) {
+
+      state.timerDurationChoice =
+        $("timerDuration").value;
+
+
+      if (
+        state.timerDurationChoice ===
+        "custom"
+      ) {
+
+        state.timerDurationMs =
+          Math.max(
+            .5,
+            +$("customTimerDuration").value ||
+            6
+          ) * 60000;
+
+      } else {
+
+        state.timerDurationMs =
+          +state.timerDurationChoice *
+          1000;
+
+      }
+
+
+      state.trackDistanceChoice =
+        $("trackDistance").value;
+
+
+      if (
+        state.trackDistanceChoice ===
+        "custom"
+      ) {
+
+        state.trackDistance =
+          Math.max(
+            10,
+            +$("customTrackDistance").value ||
+            300
+          );
+
+      } else {
+
+        state.trackDistance =
+          +state.trackDistanceChoice;
+
+      }
+
+    }
+
+
+    if (
+      state.trainingTool === "vma"
+    ) {
+
+      state.vmaProtocol =
+        $("vmaProtocol").value;
+
+
+      if (
+        state.vmaProtocol === "6"
+      ) {
+
+        state.vmaDurationMs =
+          360000;
+
+      } else if (
+        state.vmaProtocol === "12"
+      ) {
+
+        state.vmaDurationMs =
+          720000;
+
+      } else {
+
+        state.vmaDurationMs =
+          Math.max(
+            .5,
+            +$("vmaCustomDuration").value ||
+            6
+          ) * 60000;
+
+      }
+
+
+      state.vmaTrackDistanceChoice =
+        $("vmaTrackDistance").value;
+
+
+      if (
+        state.vmaTrackDistanceChoice ===
+        "custom"
+      ) {
+
+        state.vmaTrackDistance =
+          Math.max(
+            10,
+            +$("vmaCustomTrackDistance").value ||
+            300
+          );
+
+      } else {
+
+        state.vmaTrackDistance =
+          +state.vmaTrackDistanceChoice;
+
+      }
+
+    }
+
+  }
+
+
+  /* =========================================================
+     PAGE PARAMETRAGE
+  ========================================================= */
+
+  let setupStep = "cover";
+
+  function renderSetupWizard() {
+    refreshSupervised500();
+    const cover = setupStep === "cover";
+    document.body.classList.toggle("setup-cover", cover && state.view === "setup");
+    const tools = setupStep === "tools";
+    document.body.classList.toggle("setup-tools", tools && state.view === "setup");
+    const settings = setupStep === "settings";
+    const runners = setupStep === "runners";
+    const exam = isExamMode();
+    const titles = { cover: "Chrono Carnet EPS", tools: "Quel outil veux-tu utiliser ?",
+      settings: "Préparer la séance", runners: "Qui va courir ?" };
+    const hints = { cover: "Choisis ton mode pour préparer ta séance.",
+      tools: "Choisis un outil pour afficher ses réglages.",
+      settings: "Règle uniquement ce dont tu as besoin pour cette séance.",
+      runners: exam ? "Ajoute un ou deux élèves. Leurs estimations seront demandées avant chaque course concernée."
+        : "Ajoute un ou deux coureurs pour leur associer les résultats." };
+    $("setupTitle").textContent = titles[setupStep];
+    $("setupHint").textContent = hints[setupStep];
+    $("setupProgress").textContent = cover ? "Bienvenue" : exam ? "Examen · Identité"
+      : "Entraînement · " + ({ tools: "1 / 3", settings: "2 / 3", runners: "3 / 3" }[setupStep]);
+    $("setupPanel").dataset.step = setupStep;
+    setVisible("setupModes", cover);
+    setVisible("trainingConfig", !exam && (tools || settings));
+    setVisible("trainingToolSelector", tools);
+    document.querySelectorAll(".trainingSubConfig").forEach(el => {
+      el.classList.toggle("hidden", !settings || el.id !== ({ simple: "trainingSimpleConfig",
+        chrono: "trainingChronoConfig", timer: "trainingTimerConfig", vma: "trainingVmaConfig" }[state.trainingTool]));
+    });
+    setVisible("ccfConfig", runners && state.mode === "ccf");
+    setVisible("exam500Config", runners && state.mode === "exam500");
+    setVisible("runnerSetupBlock", runners);
+    setVisible("configRecap", settings || runners);
+    setVisible("configMessage", settings);
+    setVisible("setupBackBtn", !cover);
+    setVisible("setupNextBtn", settings && !isSimple());
+    setVisible("shareChronoQrBtn", (settings && state.mode === "training") || (runners && exam));
+    setVisible("launchPerformanceBtn", runners || (settings && isSimple()));
+    $("launchPerformanceBtn").textContent = exam ? "Continuer : annoncer les temps →" : "Lancer la séance →";
+  }
+
+  function goSetupStep(step) {
+    if (setupStep === "settings") { readConfig(); save(); }
+    setupStep = step;
+    renderSetup();
+    $("setupTitle").focus({ preventScroll: true });
+    $("setupPanel").scrollIntoView?.({ block: "start", behavior: "smooth" });
+  }
+
+  function renderSetup() {
+
+    document
+      .querySelectorAll(
+        '[name="mode"]'
+      )
+      .forEach(
+        x =>
+          x.checked =
+            x.value === state.mode
+      );
+
+
+    document
+      .querySelectorAll(
+        '[name="trainingTool"]'
+      )
+      .forEach(
+        x =>
+          x.checked =
+            x.value === state.trainingTool
+      );
+
+
+    const ccf =
+      state.mode === "ccf";
+
+    const exam500 =
+      isExam500();
+
+    const examMode =
+      ccf || exam500;
+
+
+    setVisible(
+      "trainingConfig",
+      !examMode
+    );
+
+
+    setVisible(
+      "ccfConfig",
+      ccf
+    );
+
+    setVisible(
+      "exam500Config",
+      exam500
+    );
+
+
+    document
+      .querySelectorAll(
+        ".ccfRunnerField"
+      )
+      .forEach(
+        x =>
+          x.classList.toggle(
+            "hidden",
+            true
+          )
+      );
+
+
+    setVisible(
+      "trainingSimpleConfig",
+      !ccf &&
+      state.trainingTool === "simple"
+    );
+
+
+    setVisible(
+      "trainingChronoConfig",
+      !ccf &&
+      state.trainingTool === "chrono"
+    );
+
+
+    setVisible(
+      "trainingTimerConfig",
+      !ccf &&
+      state.trainingTool === "timer"
+    );
+
+
+    setVisible(
+      "trainingVmaConfig",
+      !ccf &&
+      state.trainingTool === "vma"
+    );
+
+
+    setVisible(
+      "runnerSetupBlock",
+      true
+    );
+
+
+    const p1Label =
+      $("project1Min")?.closest(".estimateBox")?.querySelector("span");
+    const p2Label =
+      $("project2Min")?.closest(".estimateBox")?.querySelector("span");
+
+    if (p1Label) {
+      p1Label.textContent =
+        exam500 ? "Annonce 500 n°1" : "Estimation 800 n°1";
+    }
+
+    if (p2Label) {
+      p2Label.textContent =
+        exam500 ? "Annonce 500 n°2" : "Estimation 800 n°2";
+    }
+
+
+    /* Chrono performance */
+
+    $("chronoPlanMode").value =
+      state.chronoPlanMode;
+
+    $("chronoSeriesText").value =
+      state.chronoSeriesText;
+
+    $("chronoSeriesWithSplits").value =
+      (state.chronoPlanMode === "series" ? state.chronoSeriesWithSplits : state.chronoSingleWithSplits)
+        ? "yes"
+        : "no";
+
+    const chronoSeries =
+      state.chronoPlanMode === "series";
+
+    setVisible(
+      "chronoSeriesField",
+      chronoSeries
+    );
+
+    setVisible(
+      "chronoSeriesSplitToggleField",
+      true
+    );
+
+    setVisible(
+      "singleDistanceField",
+      !chronoSeries
+    );
+
+    setVisible(
+      "targetTimeField",
+      !chronoSeries
+    );
+
+    setVisible(
+      "splitDistanceField",
+      chronoSeries ? state.chronoSeriesWithSplits : state.chronoSingleWithSplits
+    );
+
+    $("totalDistance").value =
+      [
+        100,200,400,500,600,800,
+        1000,1200,1500,2000,3000
+      ].includes(state.totalDistance)
+        ? String(state.totalDistance)
+        : "custom";
+
+
+    $("customDistance").value =
+      state.totalDistance;
+
+
+    $("splitDistance").value =
+      [50,100,150,200,250,400]
+        .includes(state.splitDistance)
+        ? String(state.splitDistance)
+        : "custom";
+
+
+    $("customSplit").value =
+      state.splitDistance;
+
+
+    $("displayMode").value =
+      state.displayMode;
+
+
+    $("targetTime").value =
+      state.targetMs
+        ? fmt(state.targetMs)
+        : "";
+
+
+    setVisible(
+      "customDistanceWrap",
+      !chronoSeries &&
+      $("totalDistance").value === "custom"
+    );
+
+
+    setVisible(
+      "customSplitWrap",
+      (
+        chronoSeries ? state.chronoSeriesWithSplits : state.chronoSingleWithSplits
+      ) &&
+      $("splitDistance").value === "custom"
+    );
+
+
+    /* Minuteur */
+
+    $("timerDuration").value =
+      state.timerDurationChoice;
+
+
+    $("customTimerDuration").value =
+      Math.max(
+        .5,
+        state.timerDurationMs /
+        60000
+      );
+
+
+    $("trackDistance").value =
+      state.trackDistanceChoice;
+
+
+    $("customTrackDistance").value =
+      state.trackDistance;
+
+
+    setVisible(
+      "customTimerDurationWrap",
+      state.timerDurationChoice ===
+      "custom"
+    );
+
+
+    setVisible(
+      "customTrackDistanceWrap",
+      state.trackDistanceChoice ===
+      "custom"
+    );
+
+
+    $("timerPreviewDuration")
+      .textContent =
+        fmtClock(
+          state.timerDurationMs
+        );
+
+
+    $("timerPreviewTrack")
+      .textContent =
+        `${state.trackDistance} m`;
+
+
+    /* VMA */
+
+    $("vmaProtocol").value =
+      state.vmaProtocol;
+
+
+    $("vmaCustomDuration").value =
+      Math.max(
+        .5,
+        state.vmaDurationMs /
+        60000
+      );
+
+
+    $("vmaTrackDistance").value =
+      state.vmaTrackDistanceChoice;
+
+
+    $("vmaCustomTrackDistance").value =
+      state.vmaTrackDistance;
+
+
+    setVisible(
+      "vmaCustomDurationWrap",
+      state.vmaProtocol ===
+      "custom"
+    );
+
+
+    setVisible(
+      "vmaCustomTrackDistanceWrap",
+      state.vmaTrackDistanceChoice ===
+      "custom"
+    );
+
+
+    /* Résumé */
+
+    const recap = [];
+
+
+    if (ccf) {
+
+      recap.push(
+        "CCF demi-fond",
+        "800 m",
+        "200 m / passage"
+      );
+
+    } else if (exam500) {
+
+      recap.push(
+        "Examen demi-fond",
+        "3 × 500 m",
+        "250 / 500 m"
+      );
+
+    } else if (
+      state.trainingTool === "simple"
+    ) {
+
+      recap.push(
+        "Chrono simple",
+        "Sans paramétrage"
+      );
+
+    } else if (
+      state.trainingTool === "chrono"
+    ) {
+
+      recap.push(
+        "Chrono performance",
+        isChronoSeries() ? state.chronoSeriesDistances.map(distance => `${distance} m`).join(" → ") : `${state.totalDistance} m`,
+        (isChronoSeries() ? state.chronoSeriesWithSplits : state.chronoSingleWithSplits)
+          ? `${state.splitDistance} m / passage` : "Sans intermédiaire"
+      );
+
+    } else if (
+      state.trainingTool === "timer"
+    ) {
+
+      recap.push(
+        "Minuteur / Tours",
+        fmtClock(
+          state.timerDurationMs
+        ),
+        `Piste ${state.trackDistance} m`
+      );
+
+    } else {
+
+      const protocolName =
+        state.vmaProtocol === "6"
+          ? "Demi-Cooper"
+          : state.vmaProtocol === "12"
+            ? "Cooper"
+            : "Test personnalisé";
+
+
+      recap.push(
+        protocolName,
+        fmtClock(
+          state.vmaDurationMs
+        ),
+        `Piste ${state.vmaTrackDistance} m`
+      );
+
+    }
+
+
+    $("configRecap").innerHTML =
+      recap
+        .map(
+          x =>
+            `<span>${x}</span>`
+        )
+        .join("");
+
+
+    $("launchPerformanceBtn")
+      .textContent =
+
+      examMode
+        ? "Passer à la prise de performance"
+
+        : state.trainingTool === "simple"
+          ? "Ouvrir le chrono"
+
+        : state.trainingTool === "chrono"
+          ? "Démarrer la prise de performance"
+
+        : state.trainingTool === "timer"
+          ? "Démarrer le minuteur"
+
+        : state.vmaProtocol === "6"
+          ? "Démarrer le Demi-Cooper"
+
+        : state.vmaProtocol === "12"
+          ? "Démarrer le Cooper"
+
+        : "Démarrer le test VMA";
+
+
+    renderRunnerSetup();
+    renderSetupWizard();
+
+  }
+
+
+  /* =========================================================
+     COUREURS
+  ========================================================= */
+
+  function renderRunnerSetup() {
+
+    const b =
+      $("runnerSetupList");
+
+    if (!b) {
+      return;
+    }
+
+
+    b.innerHTML =
+      state.runners.length
+
+        ? state.runners
+          .map(
+            r =>
+
+              `<span class="runnerChip">` +
+
+              `<strong>${
+                esc(
+                  r.last
+                    ? r.last.toUpperCase() +
+                      " " +
+                      r.first
+                    : r.name
+                )
+              }</strong>` +
+
+              `${
+                r.classroom
+                  ? ` · ${esc(r.classroom)}`
+                  : ""
+              }` +
+
+              `${
+                isExamMode()
+                  ? ` · ${r.sex}` +
+                    ` · P1 ${
+                      r.project1Ms
+                        ? fmt(r.project1Ms)
+                        : "—"
+                    }` +
+                    ` · P2 ${
+                      r.project2Ms
+                        ? fmt(r.project2Ms)
+                        : "—"
+                    }`
+                  : ""
+              }` +
+
+              `<button data-del="${r.id}">×</button>` +
+
+              `</span>`
+
+          )
+          .join("")
+
+        : "Aucun coureur ajouté.";
+
+
+    b.querySelectorAll(
+      "[data-del]"
+    )
+    .forEach(
+      x => {
+
+        x.onclick =
+          () => {
+
+            if (running) {
+              return;
+            }
+
+
+            if (
+              state.results.some(
+                y =>
+                  y.runnerId ===
+                  x.dataset.del
+              ) ||
+              state.timedRuns.some(
+                y =>
+                  y.runnerId ===
+                  x.dataset.del
+              )
+            ) {
+
+              return toast(
+                "Impossible de supprimer un coureur qui a déjà des résultats."
+              );
+
+            }
+
+
+            state.runners =
+              state.runners.filter(
+                r =>
+                  r.id !==
+                  x.dataset.del
+              );
+
+
+            if (
+              state.activeRunnerId ===
+              x.dataset.del
+            ) {
+
+              state.activeRunnerId =
+                state.runners[0]?.id ||
+                null;
+
+            }
+
+
+            save();
+
+            renderRunnerSetup();
+
+          };
+
+      }
+    );
+
+  }
+
+
+  function estimateMs(prefix) {
+
+    const m =
+      $(`${prefix}Min`)?.value;
+
+    const s =
+      $(`${prefix}Sec`)?.value;
+
+
+    if (
+      m === "" ||
+      s === ""
+    ) {
+
+      return null;
+
+    }
+
+
+    const sec =
+      Number(s);
+
+
+    if (
+      !Number.isInteger(sec) ||
+      sec < 0 ||
+      sec > 59
+    ) {
+
+      return null;
+
+    }
+
+
+    return (
+      Number(m) * 60 +
+      sec
+    ) * 1000;
+
+  }
+
+
+  function addRunner() {
+
+    const last =
+      $("runnerLast")
+        ?.value
+        .trim() ||
+      "";
+
+
+    const first =
+      $("runnerFirst")
+        ?.value
+        .trim() ||
+      "";
+
+
+    const cls =
+      $("runnerClass")
+        ?.value
+        .trim()
+        .toUpperCase() ||
+      "";
+
+
+    const name =
+      $("runnerName")
+        ?.value
+        .trim() ||
+
+      [
+        last.toUpperCase(),
+        first
+      ]
+        .filter(Boolean)
+        .join(" ");
+
+
+    if (
+      !last ||
+      !first
+    ) {
+
+      return toast(
+        "Nom et prénom sont obligatoires."
+      );
+
+    }
+
+
+    if (
+      isExamMode() &&
+      state.runners.length >= 2
+    ) {
+
+      return toast(
+        "Deux coureurs maximum dans ce mode examen."
+      );
+
+    }
+
+
+    if (
+      state.mode === "training" &&
+      state.runners.length >= 2
+    ) {
+
+      return toast(
+        "Deux coureurs maximum par séance."
+      );
+
+    }
+
+
+    const p1 =
+      null;
+
+
+    const p2 =
+      null;
+
+
+    if (
+      !cls
+    ) {
+
+      return toast(
+        "La classe est obligatoire."
+      );
+
+    }
+
+
+    const r = {
+
+      id:
+        uid(),
+
+      externalId:
+        stableStudentId(
+          last,
+          first,
+          cls
+        ),
+
+      last,
+
+      first,
+
+      classroom:
+        cls,
+
+      name,
+
+      sex:
+        $("runnerSex").value,
+
+      project1Ms:
+        p1,
+
+      project2Ms:
+        p2,
+
+      tone:
+        state.runners.length % 2
+          ? "blue"
+          : "green",
+
+      lockedIdentity:
+        isExamMode(),
+
+      stopped:
+        false,
+
+      stoppedReason:
+        "",
+
+      stoppedAt:
+        null,
+
+      stoppedRace:
+        null,
+
+      stoppedOnlyRaces:
+        []
+
+    };
+
+
+    state.runners.push(r);
+
+
+    if (
+      !state.activeRunnerId
+    ) {
+
+      state.activeRunnerId =
+        r.id;
+
+    }
+
+
+    [
+      "runnerLast",
+      "runnerFirst",
+      "runnerClass",
+      "runnerName",
+      "project1Min",
+      "project1Sec",
+      "project2Min",
+      "project2Sec"
+    ]
+    .forEach(
+      id => {
+
+        if ($(id)) {
+          $(id).value = "";
+        }
+
+      }
+    );
+
+
+    save();
+
+    renderRunnerSetup();
+
+  }
+
+
+  /* =========================================================
+     LANCEMENT
+  ========================================================= */
+
+  function openRaceEstimates(
+    race,
+    onValid
+  ) {
+
+    if (
+      !isExamMode() ||
+      !(race === 1 || race === 2 || (race === 3 && isExam500() && state.exam500EstimateC3))
+    ) {
+      onValid?.();
+      return;
+    }
+
+    const key =
+      race === 1 ? "project1Ms" : race === 2 ? "project2Ms" : "project3Ms";
+
+    let dialog =
+      $("exam500EstimateDialog");
+
+    if (!dialog) {
+
+      dialog =
+        document.createElement(
+          "dialog"
+        );
+
+      dialog.id =
+        "exam500EstimateDialog";
+
+      document.body.appendChild(
+        dialog
+      );
+
+    }
+
+    dialog.innerHTML =
+      '<div class="dialogPanel" style="min-width:min(520px,92vw)">' +
+      '<h3>Annonce · ' +
+      (isExam500() ? "500" : "800") +
+      ' m n°' +
+      race +
+      '</h3>' +
+      '<p style="margin-top:0">Chaque coureur annonce le temps qu’il pense réaliser avant la course.</p>' +
+      '<div id="exam500EstimateFields" style="display:grid;gap:12px;margin:18px 0"></div>' +
+      '<div id="exam500EstimateError" style="min-height:20px;color:#b91c1c;font-weight:700"></div>' +
+      '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px">' +
+      '<button type="button" id="exam500EstimateCancel" class="btn soft">Annuler</button>' +
+      '<button type="button" id="exam500EstimateValidate" class="btn primary">Valider les annonces</button>' +
+      '</div>' +
+      '</div>';
+
+    const fields =
+      $("exam500EstimateFields");
+
+    fields.innerHTML =
+      state.runners
+        .map(
+          r =>
+            '<label class="field">' +
+            '<span><strong>' +
+            esc(
+              r.last
+                ? r.last.toUpperCase() +
+                  " " +
+                  r.first
+                : r.name
+            ) +
+            '</strong>' +
+            (
+              r.classroom
+                ? " · " +
+                  esc(r.classroom)
+                : ""
+            ) +
+            '</span>' +
+            '<input class="exam500EstimateInput" data-runner="' +
+            r.id +
+            '" inputmode="numeric" pattern="[0-9]*" placeholder="Ex. 134 pour 1 min 34 s" value="' +
+            (
+              r[key]
+                ? String(Math.floor(r[key] / 60000)) + String(Math.floor(r[key] / 1000) % 60).padStart(2, "0")
+                : ""
+            ) +
+            '">' +
+            '</label>'
+        )
+        .join("");
+
+    $("exam500EstimateCancel").onclick =
+      () =>
+        dialog.close();
+
+    $("exam500EstimateValidate").onclick =
+      () => {
+
+        const inputs =
+          [
+            ...dialog.querySelectorAll(
+              ".exam500EstimateInput"
+            )
+          ];
+
+        const values = [];
+
+        for (
+          const input
+          of inputs
+        ) {
+
+          const value =
+            parseTime(
+              input.value
+            );
+
+          if (
+            !value ||
+            value < 20000 ||
+            value > 600000
+          ) {
+
+            $("exam500EstimateError")
+              .textContent =
+                "Saisis uniquement les chiffres, par exemple 134 pour 1 min 34 s.";
+
+            input.focus();
+
+            return;
+
+          }
+
+          values.push({
+            id:
+              input.dataset.runner,
+            value
+          });
+
+        }
+
+        values.forEach(
+          item => {
+
+            const runner =
+              state.runners.find(
+                r =>
+                  r.id === item.id
+              );
+
+            if (runner) {
+              runner[key] =
+                item.value;
+            }
+
+          }
+        );
+
+        save();
+
+        dialog.close();
+
+        onValid?.();
+
+      };
+
+    dialog.style.display="";
+    if (!dialog.open) dialog.showModal();
+
+    const firstEmpty =
+      dialog.querySelector(
+        ".exam500EstimateInput"
+      );
+
+    firstEmpty?.focus();
+
+  }
+
+
+  function launch() {
+
+    readConfig();
+
+
+    if (
+      !state.runners.length && !isSimple()
+    ) {
+
+      return toast(
+        "Ajoute au moins un élève."
+      );
+
+    }
+
+
+    if (
+      isChronoSeries()
+    ) {
+
+      if (
+        !state.chronoSeriesDistances.length
+      ) {
+        return toast(
+          "Ajoute au moins une distance dans la série."
+        );
+      }
+
+      if (
+        state.chronoSeriesWithSplits &&
+        state.splitDistance <= 0
+      ) {
+        return toast(
+          "Distance intermédiaire invalide."
+        );
+      }
+
+    } else if (
+      (
+        isExamMode() ||
+        isChrono()
+      ) &&
+      (
+        state.totalDistance <= 0 ||
+        raceSplitDistance() <= 0 ||
+        state.totalDistance %
+        raceSplitDistance()
+      )
+    ) {
+
+      return toast(
+        "Configuration incohérente."
+      );
+
+    }
+
+
+    if (
+      isTimed()
+    ) {
+
+      const duration =
+        currentTimedDuration();
+
+      const track =
+        currentTrackDistance();
+
+
+      if (
+        duration <= 0 ||
+        track <= 0
+      ) {
+
+        return toast(
+          "Durée ou longueur de piste invalide."
+        );
+
+      }
+
+    }
+
+
+    if (
+      isExamMode() &&
+      state.runners.some(
+        r =>
+          !r.last ||
+          !r.first ||
+          !r.classroom
+      )
+    ) {
+
+      return toast(
+        "Identité élève incomplète."
+      );
+
+    }
+
+
+    if (
+      isExamMode() &&
+      state.runners.some(
+        r =>
+          !r.project1Ms
+      )
+    ) {
+
+      openRaceEstimates(
+        1,
+        launch
+      );
+
+      return;
+
+    }
+
+
+    state.view =
+      "performance";
+
+
+    state.activeRace =
+      1;
+
+
+    if (
+      !isSimple()
+    ) {
+
+      if (
+        isTimed()
+      ) {
+
+        state.activeRunnerId =
+          state.runners.find(
+            r =>
+              !timedRunFor(r.id)
+          )?.id ||
+          state.runners[0]?.id ||
+          null;
+
+      } else {
+
+        state.activeRunnerId =
+          state.runners.find(
+            r =>
+              !done(r.id,1)
+          )?.id ||
+          state.runners[0]?.id ||
+          null;
+
+      }
+
+    }
+
+
+    resetClock();
+
+    resetTimedRuntime();
+
+    save();
+
+    render();
+
+  }
+
+
+  /* =========================================================
+     CHRONO
+  ========================================================= */
+
+  function resetClock() {
+
+    running = false;
+    startedAt = 0;
+    elapsedMs = 0;
+    lapLockedUntil = 0;
+
+    if ($("lapBtn")) {
+      $("lapBtn").textContent=lapActionLabel();
+      $("lapBtn").disabled=true;
+    }
+    if ($("mainTime")) $("mainTime").textContent=fmt(0);
+
+  }
+
+
+  function resetTimedRuntime() {
+
+    timedLapCount = 0;
+    timedFinished = false;
+    timedActualDurationMs = 0;
+
+
+    if (
+  $("partialDistance")
+) {
+
+  $("partialDistance").value = 0;
+  $("partialDistance").min = 0;
+  $("partialDistance").max =
+    Math.max(
+      0,
+      currentTrackDistance() - 1
+    );
+
+}
+
+  }
+
+
+  function currentTimedDuration() {
+
+    return (
+      state.trainingTool === "vma"
+        ? state.vmaDurationMs
+        : state.timerDurationMs
+    );
+
+  }
+
+
+  function currentTrackDistance() {
+
+    return (
+      state.trainingTool === "vma"
+        ? state.vmaTrackDistance
+        : state.trackDistance
+    );
+
+  }
+
+
+  function start() {
+
+    if (running) {
+      return;
+    }
+
+
+    if (
+      isSimple()
+    ) {
+
+      startedAt = performance.now();
+      running = true;
+
+      renderTimer();
+
+      return;
+
+    }
+
+
+    const r =
+      activeRunner();
+
+
+    if (!r) {
+
+      return toast(
+        "Choisis un coureur."
+      );
+
+    }
+
+
+    if (
+      isTimed()
+    ) {
+
+      if (
+        timedRunFor(r.id)
+      ) {
+
+        return toast(
+          "Un résultat existe déjà pour ce coureur. Réinitialise-le pour recommencer."
+        );
+
+      }
+
+
+      resetTimedRuntime();
+
+      elapsedMs = 0;
+
+      startedAt =
+        performance.now();
+
+      running = true;
+
+      renderTimer();
+
+      return;
+
+    }
+
+
+    if (supervised500() && pending500()) {
+      const v=state.exam500Validations.find(x=>x.status==="pending");
+      const target=v&&state.runners.find(x=>x.id===v.runnerId);
+      if (target) openValidation500(target,v.race,v.rawMs);
+      return toast("Validation professeur obligatoire avant le prochain départ.");
+    }
+    if (done(r.id)) {
+      return toast("Cette course est déjà terminée pour ce coureur.");
+    }
+
+    elapsedMs = 0;
+
+    startedAt =
+      performance.now();
+
+    running = true;
+    // Réactivation explicite après une validation précédente.
+    lapLockedUntil=0;
+    if ($("lapBtn")) $("lapBtn").disabled=false;
+    renderTimer();
+
+  }
+
+
+  function stopClock() {
+
+    if (running) {
+
+      elapsedMs =
+        now();
+
+      running =
+        false;
+
+      startedAt =
+        0;
+
+    }
+
+
+    renderTimer();
+
+  }
+
+
+  function stopAction() {
+
+  if (!running) {
+    return;
+  }
+
+
+  if (
+    isSimple()
+  ) {
+
+    stopClock();
+
+    save();
+
+    renderPerf();
+
+    return;
+
+  }
+
+
+  if (
+    isTimed()
+  ) {
+
+    if (
+      state.trainingTool === "vma" &&
+      (
+        state.vmaProtocol === "6" ||
+        state.vmaProtocol === "12"
+      )
+    ) {
+
+      const ok =
+        confirm(
+          "Interrompre le test ? Aucun résultat VMA ne sera enregistré."
+        );
+
+      if (!ok) {
+        return;
+      }
+
+      resetClock();
+
+      resetTimedRuntime();
+
+      renderPerf();
+
+      toast(
+        "Test interrompu · aucun résultat VMA enregistré."
+      );
+
+      return;
+
+    }
+
+
+    finishTimedRun(false);
+
+  }
+
+}
+  /* =========================================================
+     CHRONO PERFORMANCE / CCF
+  ========================================================= */
+
+  function nextRunnerSameRace(
+    currentId
+  ) {
+
+    return (
+      state.runners.find(
+        r =>
+          r.id !== currentId &&
+          !done(
+            r.id,
+            state.activeRace
+          )
+      ) ||
+      null
+    );
+
+  }
+
+
+  function recordLap() {
+
+    const r =
+      activeRunner();
+
+
+    if (!r) {
+
+      return toast(
+        "Choisis un coureur."
+      );
+
+    }
+
+
+    if (!running) {
+
+      return toast(
+        "Appuie d’abord sur DÉPART."
+      );
+
+    }
+
+
+    const a =
+      rr(r.id);
+
+
+    const cum =
+      now();
+
+
+    const prev =
+      a.length
+        ? a.at(-1).cumulativeMs
+        : 0;
+
+
+    const lap =
+      cum - prev;
+
+
+    const pass =
+      a.length + 1;
+
+
+    const dist =
+      pass *
+      raceSplitDistance();
+
+
+    const delta =
+      a.length
+        ? lap -
+          a.at(-1).lapMs
+        : null;
+
+
+    const target =
+      state.mode === "training"
+        ? state.targetMs
+        : (
+            state.activeRace === 1
+              ? r.project1Ms
+              : state.activeRace === 2
+                ? r.project2Ms
+                : null
+          );
+
+
+    state.results.push({
+
+      id:
+        uid(),
+
+      runnerId:
+        r.id,
+
+      runnerName:
+        r.name,
+
+      race:
+        state.activeRace,
+
+      passage:
+        pass,
+
+      distance:
+        dist,
+
+      cumulativeMs:
+        cum,
+
+      lapMs:
+        lap,
+
+      speed:
+        spd(
+          raceSplitDistance(),
+          lap
+        ),
+
+      deltaMs:
+        delta,
+
+      targetDelta:
+        target
+          ? cum -
+            target *
+            (
+              dist /
+              raceDistance()
+            )
+          : null
+
+    });
+
+
+    // Ne pas afficher "TOUR VALIDÉ" par-dessus la fenêtre professeur.
+    if (!(supervised500() && pass >= requiredSplits())) confirmLapRecorded();
+
+
+    if (
+      pass >=
+      requiredSplits()
+    ) {
+
+      stopClock();
+      if (supervised500()) {
+        // Chaque arrivée crée une validation indexée par (coureur, numéro de 500).
+        const race=state.activeRace;
+        // Enregistrer la validation avant le rendu pour que chaque arrivée
+        // possède sa propre entrée (élève + course), y compris au 2e et 3e 500.
+        save();
+        renderPerf();
+        openValidation500(r,race,cum);
+        return;
+      }
+
+      if (
+        isExamMode()
+      ) {
+
+        const next =
+          nextRunnerSameRace(
+            r.id
+          );
+
+
+        if (next) {
+
+          state.activeRunnerId =
+            next.id;
+
+          resetClock();
+
+          toast(
+            `${r.name} terminé · au tour de ${next.name}`
+          );
+
+        } else if (
+          state.activeRace < raceCount()
+        ) {
+
+          toast(
+            isExam500()
+              ? "500 m terminé · passe à la course suivante"
+              : "800 m n°1 terminés · lance la récupération puis passe au n°2"
+          );
+
+        } else {
+
+          toast(
+            isExam500()
+              ? "Les trois 500 m sont terminés · QR professeur disponible"
+              : "Les deux 800 m sont terminés · bilan et QR disponibles"
+          );
+
+        }
+
+      } else if (
+        isChronoSeries()
+      ) {
+
+        const next =
+          nextRunnerSameRace(
+            r.id
+          );
+
+        if (next) {
+
+          state.activeRunnerId =
+            next.id;
+
+          resetClock();
+
+          toast(
+            `${r.name} terminé · au tour de ${next.name}`
+          );
+
+        } else if (
+          state.activeRace <
+          raceCount()
+        ) {
+
+          state.activeRace += 1;
+
+          state.activeRunnerId =
+            state.runners.find(
+              runner =>
+                !done(
+                  runner.id,
+                  state.activeRace
+                )
+            )?.id ||
+            state.runners[0]?.id ||
+            null;
+
+          resetClock();
+
+          toast(
+            `Course suivante · ${raceDistance()} m`
+          );
+
+        } else {
+
+          resetClock();
+
+          toast(
+            "Série terminée · QR professeur disponible pour chaque élève"
+          );
+
+        }
+
+      } else {
+
+        toast(
+          `${r.name} · course terminée`
+        );
+
+      }
+
+    }
+
+
+    save();
+
+    renderPerf();
+
+  }
+
+
+  /* =========================================================
+     MINUTEUR / VMA
+  ========================================================= */
+
+  function addTimedLap() {
+
+    if (
+      !isTimed()
+    ) {
+      return;
+    }
+
+
+    if (
+      !running
+    ) {
+
+      return toast(
+        "Appuie d’abord sur DÉPART."
+      );
+
+    }
+
+
+    timedLapCount += 1;
+
+    navigator.vibrate?.(25);
+
+    renderTimer();
+
+  }
+
+
+  function undoTimedLap() {
+
+    if (
+      !isTimed() ||
+      timedLapCount <= 0 ||
+      timedFinished
+    ) {
+
+      return;
+
+    }
+
+
+    timedLapCount -= 1;
+
+    renderTimer();
+
+  }
+
+
+  function finishTimedRun(
+    auto = true
+  ) {
+
+    if (
+      !isTimed() ||
+      timedFinished
+    ) {
+
+      return;
+
+    }
+
+
+    const duration =
+      currentTimedDuration();
+
+
+    timedActualDurationMs =
+      auto
+        ? duration
+        : Math.min(
+            now(),
+            duration
+          );
+
+
+    elapsedMs =
+      timedActualDurationMs;
+
+    running =
+      false;
+
+    startedAt =
+      0;
+
+    timedFinished =
+      true;
+
+
+    setVisible(
+      "timerFinishPanel",
+      true
+    );
+
+
+    renderTimer();
+
+    renderPerf();
+
+
+    toast(
+      auto
+        ? "Temps terminé · ajoute la distance partielle"
+        : "Test arrêté · ajoute la distance partielle"
+    );
+
+  }
+
+
+  /* =========================================================
+     CALCUL VMA
+  ========================================================= */
+
+  function calculateVma(
+    distanceM,
+    durationMs,
+    protocol
+  ) {
+
+    const averageSpeed =
+      spd(
+        distanceM,
+        durationMs
+      );
+
+
+    /*
+      Demi-Cooper :
+      sur 6 minutes, la vitesse moyenne
+      correspond directement à distance / 100.
+    */
+
+    if (
+      protocol === "6"
+    ) {
+
+      return averageSpeed;
+
+    }
+
+
+    /*
+      Cooper 12 minutes :
+      estimation VO2max classique de Cooper,
+      puis conversion indicative en VMA
+      avec VMA ≈ VO2max / 3,5.
+    */
+
+    if (
+      protocol === "12"
+    ) {
+
+      const vo2max =
+        (
+          distanceM -
+          504.9
+        ) /
+        44.73;
+
+
+      if (
+        !Number.isFinite(vo2max) ||
+        vo2max <= 0
+      ) {
+
+        return averageSpeed;
+
+      }
+
+
+      return (
+        vo2max /
+        3.5
+      );
+
+    }
+
+
+    /*
+  Durée personnalisée :
+  pas de protocole VMA standard.
+  On ne calcule donc pas de VMA.
+*/
+
+return null;
+  }
+
+
+  function validateTimedResult() {
+
+    if (
+      !isTimed() ||
+      !timedFinished
+    ) {
+
+      return;
+
+    }
+
+
+    const r =
+      activeRunner();
+
+
+    if (!r) {
+
+      return toast(
+        "Aucun coureur sélectionné."
+      );
+
+    }
+
+
+    const track =
+      currentTrackDistance();
+
+
+    const partial =
+      Math.max(
+        0,
+        +$("partialDistance").value ||
+        0
+      );
+
+
+    if (
+      partial >= track
+    ) {
+
+      return toast(
+        `La distance partielle doit être inférieure à ${track} m.`
+      );
+
+    }
+
+
+    const durationMs =
+      timedActualDurationMs ||
+      currentTimedDuration();
+
+
+    const totalDistance =
+      timedLapCount *
+      track +
+      partial;
+
+
+    if (
+      totalDistance <= 0
+    ) {
+
+      return toast(
+        "Aucune distance enregistrée."
+      );
+
+    }
+
+
+    const speed =
+      spd(
+        totalDistance,
+        durationMs
+      );
+
+
+    const vma =
+      state.trainingTool === "vma"
+        ? calculateVma(
+            totalDistance,
+            durationMs,
+            state.vmaProtocol
+          )
+        : null;
+
+
+    const protocolName =
+      state.vmaProtocol === "6"
+        ? "Demi-Cooper"
+        : state.vmaProtocol === "12"
+          ? "Cooper"
+          : "Test personnalisé";
+
+
+    state.timedRuns =
+      state.timedRuns.filter(
+        x =>
+          !(
+            x.runnerId === r.id &&
+            x.tool ===
+            state.trainingTool
+          )
+      );
+
+
+    state.timedRuns.push({
+
+      id:
+        uid(),
+
+      runnerId:
+        r.id,
+
+      runnerName:
+        r.name,
+
+      tool:
+        state.trainingTool,
+
+      protocol:
+        state.trainingTool === "vma"
+          ? state.vmaProtocol
+          : null,
+
+      protocolName:
+        state.trainingTool === "vma"
+          ? protocolName
+          : null,
+
+      durationMs,
+
+      trackDistance:
+        track,
+
+      laps:
+        timedLapCount,
+
+      partialDistance:
+        partial,
+
+      totalDistance,
+
+      speed,
+
+      vma,
+
+      createdAt:
+        new Date().toISOString()
+
+    });
+
+
+    save();
+
+
+    setVisible(
+      "timerFinishPanel",
+      false
+    );
+
+
+    showTimedResult(
+      r.id
+    );
+
+
+    const next =
+      state.runners.find(
+        x =>
+          x.id !== r.id &&
+          !timedRunFor(x.id)
+      );
+
+
+    if (next) {
+
+      state.activeRunnerId =
+        next.id;
+
+      resetClock();
+
+      resetTimedRuntime();
+
+      save();
+
+
+      toast(
+        `${r.name} enregistré · au tour de ${next.name}`
+      );
+
+    } else {
+
+      toast(
+        "Résultat enregistré."
+      );
+
+    }
+
+
+    renderPerf();
+
+  }
+
+
+  /* =========================================================
+     RESET / SELECTION
+  ========================================================= */
+
+  let resetArmedUntil = 0;
+  let resetArmedScope = null;
+  let resetConfirmTimer = null;
+
+  function cancelResetConfirmation() {
+    resetArmedUntil = 0;
+    resetArmedScope = null;
+    clearTimeout(resetConfirmTimer);
+    setVisible("resetConfirmMessage", false);
+    $("resetBtn").textContent = "RESET";
+    $("resetBtn").classList.remove("reset-armed");
+  }
+
+  function resetCurrent() {
+    const scope = `${state.mode}:${state.trainingTool}:${state.activeRunnerId}:${state.activeRace}`;
+    if (Date.now() < resetArmedUntil && scope === resetArmedScope) {
+      cancelResetConfirmation();
+      performResetCurrent();
+      return;
+    }
+    cancelResetConfirmation();
+    resetArmedScope = scope;
+    resetArmedUntil = Date.now() + 8000;
+    const r = activeRunner();
+    $("resetConfirmText").textContent = isSimple()
+      ? "Voulez-vous réellement remettre le chrono à zéro ?"
+      : `Voulez-vous réellement remettre à zéro la course actuelle de ${r?.name || "ce coureur"} ?`;
+    $("resetConfirmHint").textContent = "Appuyez une deuxième fois sur RESET dans les 8 secondes pour confirmer. " +
+      (running ? "Le chrono continue." : "Aucun temps n’est effacé avant confirmation.");
+    setVisible("resetConfirmMessage", true);
+    $("resetBtn").textContent = "CONFIRMER RESET";
+    $("resetBtn").classList.add("reset-armed");
+    resetConfirmTimer = setTimeout(cancelResetConfirmation, 8000);
+  }
+
+  function performResetCurrent() {
+
+    if (
+      isSimple()
+    ) {
+
+      resetClock();
+
+      renderPerf();
+
+      return;
+
+    }
+
+
+    const r =
+      activeRunner();
+
+
+    if (!r) {
+      return;
+    }
+
+
+    if (
+      isTimed()
+    ) {
+
+      state.timedRuns =
+        state.timedRuns.filter(
+          x =>
+            !(
+              x.runnerId === r.id &&
+              x.tool === state.trainingTool
+            )
+        );
+
+
+      resetClock();
+      resetTimedRuntime();
+
+      save();
+
+      renderPerf();
+
+      return;
+
+    }
+
+
+    state.results =
+      state.results.filter(
+        x =>
+          !(
+            x.runnerId === r.id &&
+            x.race === state.activeRace
+          )
+      );
+
+
+    resetClock();
+
+    save();
+
+    renderPerf();
+
+  }
+
+
+  function setActive(id) {
+
+    if (
+      running
+    ) {
+
+      return toast(
+        "Termine la course avant de changer de coureur."
+      );
+
+    }
+
+
+    state.activeRunnerId =
+      id;
+
+
+    resetClock();
+
+
+    if (
+      isTimed()
+    ) {
+
+      resetTimedRuntime();
+
+    }
+
+
+    save();
+
+    renderPerf();
+
+  }
+
+
+  function setRace(race) {
+    if (pending500()) return toast("Valide les chronos en attente avec le professeur.");
+
+    if (
+      running
+    ) {
+
+      return toast(
+        "Termine la course en cours."
+      );
+
+    }
+
+
+    if (
+      (
+        isExamMode() ||
+        isChronoSeries()
+      ) &&
+      race > 1 &&
+      !allDone(race - 1)
+    ) {
+
+      return toast(
+        isChronoSeries()
+          ? "Termine d’abord la course précédente des deux coureurs."
+          : isExam500()
+            ? "Termine d’abord la course précédente des deux coureurs."
+            : "Termine d’abord le 800 m n°1 des deux coureurs."
+      );
+
+    }
+
+
+    if (
+      isExamMode() &&
+      ((race === 2 && state.runners.some(r => !r.project2Ms)) ||
+       (race === 3 && isExam500() && state.exam500EstimateC3 && state.runners.some(r => !r.project3Ms)))
+    ) {
+
+      openRaceEstimates(
+        race,
+        () => setRace(race)
+      );
+
+      return;
+
+    }
+
+
+    state.activeRace =
+      race;
+
+
+    state.activeRunnerId =
+      state.runners.find(
+        r =>
+          !done(
+            r.id,
+            race
+          )
+      )?.id ||
+      state.runners[0]?.id ||
+      null;
+
+
+    resetClock();
+
+    save();
+
+    renderPerf();
+
+  }
+
+
+  /* =========================================================
+     AFFICHAGE CHRONO
+  ========================================================= */
+
+  function lapActionLabel() {
+    if (isSimple() || isTimed()) {
+      return "TOUR";
+    }
+
+    const runner =
+      activeRunner();
+
+    const recorded =
+      runner
+        ? rr(
+            runner.id,
+            state.activeRace
+          ).length
+        : 0;
+
+    const required =
+      requiredSplits(
+        state.activeRace
+      );
+
+    return recorded >=
+      Math.max(
+        0,
+        required - 1
+      )
+        ? "ARRIVÉE"
+        : "TOUR";
+  }
+
+
+  function startReminderText() {
+    if (isSimple()) {
+      return "Chrono libre : DÉPART puis STOP à la fin.";
+    }
+
+    if (isTimed()) {
+      return `À chaque tour de ${currentTrackDistance()} m : appuie sur +1 TOUR. À la fin, ajoute la distance supplémentaire.`;
+    }
+
+    const distance =
+      raceDistance();
+
+    const split =
+      raceSplitDistance();
+
+    const runner =
+      activeRunner();
+
+    const recorded =
+      runner
+        ? rr(
+            runner.id,
+            state.activeRace
+          ).length
+        : 0;
+
+    const nextPass =
+      recorded + 1;
+
+    const nextDistance =
+      Math.min(
+        distance,
+        nextPass * split
+      );
+
+    if (split >= distance) {
+      return `Aucun intermédiaire · à ${distance} m, appuie sur ARRIVÉE pour valider la course.`;
+    }
+
+    if (
+      nextDistance >=
+      distance
+    ) {
+      return `Dernier passage · à ${distance} m, appuie sur ARRIVÉE pour valider la course.`;
+    }
+
+    return `Temps intermédiaires tous les ${split} m · prochain passage : ${nextDistance} m → appuie sur TOUR.`;
+  }
+
+  function projectionSource(runnerId) {
+    if (isTimed()) {
+      const result = timedRunFor(runnerId);
+      return result && result.totalDistance > 0 && result.durationMs > 0
+        ? { distance: result.totalDistance, time: result.durationMs, courses: 1 }
+        : null;
+    }
+    if (!isChrono()) return null;
+    let distance = 0, time = 0, courses = 0;
+    for (let race = 1; race <= raceCount(); race++) {
+      if (!done(runnerId, race)) continue;
+      const last = rr(runnerId, race).at(-1);
+      if (!last || last.distance <= 0 || last.cumulativeMs <= 0) continue;
+      distance += last.distance;
+      time += last.cumulativeMs;
+      courses++;
+    }
+    return courses ? { distance, time, courses } : null;
+  }
+
+  function projectedTime(source, distance) {
+    return source && source.distance > 0 && source.time > 0 && distance > 0
+      ? source.time * distance / source.distance : null;
+  }
+
+  function renderProjection() {
+    const available = state.mode === "training" && !isSimple();
+    setVisible("projectionPanel", available);
+    if (!available) return;
+    $("projectionTarget").value = state.projectionTarget;
+    $("projectionCustomDistance").value = state.projectionCustomDistance;
+    setVisible("projectionDistanceField", state.projectionTarget === "custom");
+    if (state.projectionTarget === "off") {
+      $("projectionResults").innerHTML = "";
+      return;
+    }
+    const distance = state.projectionTarget === "custom"
+      ? state.projectionCustomDistance : Number(state.projectionTarget);
+    $("projectionResults").innerHTML = state.runners.map(r => {
+      const source = projectionSource(r.id);
+      const time = projectedTime(source, distance);
+      const label = state.projectionTarget === "800" ? "2 × 800 m"
+        : state.projectionTarget === "500" ? "3 × 500 m" : `${distance} m`;
+      return `<article class="projectionCard ${r.tone === "blue" ? "blue" : "green"}">
+        <h3>${esc(r.name)}</h3><span>${label}</span>
+        ${time === null ? '<p>Terminez et validez une course pour obtenir une estimation.</p>'
+          : `<strong class="projectionTime">≈ ${fmtClock(Math.round(time / 1000) * 1000)}</strong>
+             <b>pour une course de ${distance} m</b>
+             <p>Base : ${source.distance} m en ${fmtClock(source.time)}, sur ${source.courses} course${source.courses > 1 ? "s" : ""} terminée${source.courses > 1 ? "s" : ""}, hors récupération.</p>`}
+        </article>`;
+    }).join("") + '<p class="projectionDisclaimer">Estimation à l’allure moyenne du travail réalisé. Ce repère ne garantit pas le temps sur une autre distance ni la capacité à répéter ce chrono sur toutes les courses. Ce n’est pas une note.</p>';
+  }
+
+  function renderTimer() {
+
+    const r =
+      activeRunner();
+
+    const timerCard = document.querySelector(".timerCard");
+    const tone = !isSimple() && r ? (r.tone === "blue" ? "blue" : "green") : null;
+    timerCard.classList.toggle("runner-green", tone === "green");
+    timerCard.classList.toggle("runner-blue", tone === "blue");
+
+    setVisible(
+      "startReminder",
+      !isSimple() ||
+      !running
+    );
+
+    $("startReminder").textContent =
+      startReminderText();
+
+
+    if (
+      isTimed()
+    ) {
+
+      const duration =
+        currentTimedDuration();
+
+
+      const left =
+        Math.max(
+          0,
+          duration -
+          now()
+        );
+
+
+      $("mainTime").textContent =
+        fmtClock(left);
+
+
+      if (
+        running &&
+        left <= 0 &&
+        !timedFinished
+      ) {
+
+        finishTimedRun(true);
+
+        return;
+
+      }
+
+    } else {
+
+      $("mainTime").textContent =
+        fmt(
+          now()
+        );
+
+    }
+
+
+    if (
+      isSimple()
+    ) {
+
+      $("timerLabel").textContent =
+        "Chrono simple";
+
+
+      setVisible(
+        "activeRunnerBanner",
+        false
+      );
+
+
+      setVisible(
+        "timerRunInfo",
+        false
+      );
+
+
+      setVisible(
+        "startBtn",
+        !running
+      );
+
+
+      setVisible(
+        "stopBtn",
+        running
+      );
+
+
+      setVisible(
+        "lapBtn",
+        false
+      );
+
+
+      setVisible(
+        "timerLapBtn",
+        false
+      );
+
+
+      setVisible(
+        "undoTimerLapBtn",
+        false
+      );
+
+
+      $("startBtn").disabled =
+        running;
+
+
+    } else if (
+      isTimed()
+    ) {
+
+      $("timerLabel").textContent =
+
+        state.trainingTool === "vma"
+
+          ? state.vmaProtocol === "6"
+            ? "Demi-Cooper · 6 min"
+
+            : state.vmaProtocol === "12"
+              ? "Cooper · 12 min"
+
+              : "Test VMA personnalisé"
+
+          : "Minuteur";
+
+
+      setVisible(
+        "activeRunnerBanner",
+        true
+      );
+
+
+      setVisible(
+        "timerRunInfo",
+        true
+      );
+
+
+      setVisible(
+        "startBtn",
+        !running &&
+        !timedFinished
+      );
+
+
+      setVisible(
+        "stopBtn",
+        running
+      );
+
+
+      setVisible(
+        "lapBtn",
+        false
+      );
+
+
+      setVisible(
+        "timerLapBtn",
+        true
+      );
+
+
+      $("timerLapBtn").disabled =
+        !running;
+
+
+      $("undoTimerLapBtn").disabled =
+        timedLapCount <= 0 ||
+        timedFinished;
+
+
+      setVisible(
+        "undoTimerLapBtn",
+        true
+      );
+
+
+      $("timerLapCount").textContent =
+        String(
+          timedLapCount
+        );
+
+
+      const distance =
+        timedLapCount *
+        currentTrackDistance();
+
+
+      $("timerDistanceCount").textContent =
+        `${distance} m`;
+
+
+      $("timerSpeedDisplay").textContent =
+  running
+    ? "Calcul à la fin"
+    : "—";
+
+    } else {
+
+      $("timerLabel").textContent =
+        "Chronomètre";
+
+
+      setVisible(
+        "activeRunnerBanner",
+        true
+      );
+
+
+      setVisible(
+        "timerRunInfo",
+        false
+      );
+
+
+      setVisible(
+        "startBtn",
+        true
+      );
+
+
+      setVisible(
+        "stopBtn",
+        false
+      );
+
+
+      setVisible(
+        "lapBtn",
+        true
+      );
+
+
+      setVisible(
+        "timerLapBtn",
+        false
+      );
+
+
+      setVisible(
+        "undoTimerLapBtn",
+        false
+      );
+
+
+      $("startBtn").textContent =
+        running
+          ? "EN COURS"
+          : "DÉPART";
+
+
+      $("startBtn").disabled =
+        running ||
+        !r ||
+        done(r.id);
+
+
+      if (
+        performance.now() >=
+        lapLockedUntil
+      ) {
+        $("lapBtn").textContent =
+          lapActionLabel();
+      }
+
+      $("lapBtn").disabled =
+        !running ||
+        !r ||
+        performance.now() <
+          lapLockedUntil;
+
+    }
+
+
+    const p =
+      $("statusPill");
+
+
+    p.className =
+      `statusPill ${
+        running
+          ? "running"
+          : "idle"
+      }`;
+
+
+    p.textContent =
+      running
+        ? "En cours"
+        : timedFinished
+          ? "Terminé"
+          : "Prêt";
+
+
+    if (
+      !isSimple() &&
+      r
+    ) {
+
+      let proj =
+        null;
+
+
+      let activity =
+        "Course";
+
+
+      if (
+        isExamMode()
+      ) {
+
+        proj =
+          state.activeRace === 1
+            ? r.project1Ms
+            : state.activeRace === 2
+              ? r.project2Ms
+              : null;
+
+
+        activity =
+          isExam500()
+            ? `500 n°${state.activeRace}`
+            : `800 n°${state.activeRace}`;
+
+
+      } else if (
+        isChrono()
+      ) {
+
+        proj =
+          state.targetMs;
+
+
+      } else if (
+        state.trainingTool === "timer"
+      ) {
+
+        activity =
+          `Minuteur · piste ${state.trackDistance} m`;
+
+
+      } else if (
+        state.trainingTool === "vma"
+      ) {
+
+        activity =
+          `${
+            state.vmaProtocol === "6"
+              ? "Demi-Cooper"
+              : state.vmaProtocol === "12"
+                ? "Cooper"
+                : "Test VMA"
+          } · piste ${state.vmaTrackDistance} m`;
+
+      }
+
+
+      $("activeRunnerBanner").className =
+        `activeRunnerBanner ${
+          r.tone ||
+          "green"
+        }`;
+
+
+      $("activeRunnerBanner").innerHTML =
+
+        `<strong>${
+          esc(
+            r.last
+              ? r.last.toUpperCase() +
+                " " +
+                r.first
+              : r.name
+          )
+        }</strong>` +
+
+        `<span>` +
+
+        `${
+          r.classroom
+            ? esc(r.classroom) +
+              " · "
+            : ""
+        }` +
+
+        `${activity}` +
+
+        `${
+          proj
+            ? ` · estimation ${fmt(proj)}`
+            : ""
+        }` +
+
+        `</span>`;
+
+    }
+
+  }
+
+
+  /* =========================================================
+     CARTES COUREURS
+  ========================================================= */
+
+  function renderRunners() {
+
+    const g =
+      $("runnersGrid");
+
+
+    if (!g) {
+      return;
+    }
+
+
+    g.innerHTML =
+      state.runners
+        .map(
+          (r,i) => {
+
+            const isActive =
+              r.id === state.activeRunnerId;
+
+
+            let metric =
+              "Prêt";
+
+
+            let sub =
+              "";
+
+
+            let meta =
+              "Course";
+
+
+            let isDone =
+              false;
+
+
+            if (
+              isTimed()
+            ) {
+
+              const tr =
+                timedRunFor(r.id);
+
+
+              isDone =
+                !!tr;
+
+
+              meta =
+                state.trainingTool === "vma"
+
+                  ? state.vmaProtocol === "6"
+                    ? "Demi-Cooper"
+
+                    : state.vmaProtocol === "12"
+                      ? "Cooper"
+
+                      : "Test VMA"
+
+                  : "Minuteur / Tours";
+
+
+              if (tr) {
+
+                metric =
+                  `${tr.totalDistance} m`;
+
+
+                sub =
+                  `${tr.speed.toFixed(1)} km/h` +
+
+                  `${
+                    tr.vma != null
+                      ? ` · VMA ${tr.vma.toFixed(1)}`
+                      : ""
+                  }`;
+
+              } else {
+
+                sub =
+                  isActive &&
+                  timedLapCount
+
+                    ? `${timedLapCount} tour(s) en cours`
+
+                    : "Prêt à démarrer";
+
+              }
+
+
+            } else {
+
+              const a =
+                rr(r.id);
+
+
+              const last =
+                a.at(-1);
+
+
+              isDone =
+                done(r.id);
+
+
+              const proj =
+                state.mode === "training"
+                  ? state.targetMs
+                  : (
+                      state.activeRace === 1
+                        ? r.project1Ms
+                        : state.activeRace === 2
+                          ? r.project2Ms
+                          : null
+                    );
+
+
+              meta =
+                isExamMode()
+                  ? isExam500()
+                    ? `500 n°${state.activeRace}`
+                    : `800 n°${state.activeRace}`
+                  : "Course";
+
+
+              if (proj) {
+
+                meta +=
+                  ` · estimation ${fmt(proj)}`;
+
+              }
+
+
+              metric =
+                last
+                  ? fmt(last.cumulativeMs)
+                  : "Prêt";
+
+
+              sub =
+                isDone
+                  ? "Course terminée"
+                  : `${a.length}/${requiredSplits()} passages enregistrés`;
+
+            }
+
+
+            return (
+
+              `<button ` +
+
+              `class="runnerCard runnerSelect ${
+                r.tone ||
+                (
+                  i % 2
+                    ? "blue"
+                    : "green"
+                )
+              } ${
+                isActive
+                  ? "active"
+                  : ""
+              }" ` +
+
+              `data-runner="${r.id}" ` +
+
+              `${
+                running &&
+                !isActive
+                  ? "disabled"
+                  : ""
+              }>` +
+
+              `<span class="runnerName">${
+                esc(
+                  r.last
+                    ? r.last.toUpperCase() +
+                      " " +
+                      r.first
+                    : r.name
+                )
+              }</span>` +
+
+              `<span class="runnerMeta">` +
+
+              `${
+                r.classroom
+                  ? esc(r.classroom) +
+                    " · "
+                  : ""
+              }` +
+
+              `${meta}` +
+
+              `</span>` +
+
+              `<span class="runnerMainMetric">${metric}</span>` +
+
+              `<span class="runnerSubMetric">${sub}</span>` +
+
+              `</button>`
+
+            );
+
+          }
+        )
+        .join("");
+
+
+    g.querySelectorAll(
+      "[data-runner]"
+    )
+    .forEach(
+      x =>
+        x.onclick =
+          () =>
+            setActive(
+              x.dataset.runner
+            )
+    );
+
+  }
+
+
+  /* =========================================================
+     RESULTATS CHRONO CLASSIQUE
+  ========================================================= */
+
+  function renderResults() {
+
+    const a =
+      state.results;
+
+
+    $("resultsEmpty").hidden =
+      !!a.length;
+
+
+    $("resultsTable")
+      .classList
+      .toggle(
+        "hidden",
+        !a.length
+      );
+
+
+    $("resultsBody").innerHTML =
+
+      a
+        .map(
+          x =>
+
+            `<tr>` +
+
+            `<td><strong>${esc(x.runnerName)}</strong></td>` +
+
+            `<td>${
+              state.mode === "training"
+                ? "—"
+                : x.race
+            }</td>` +
+
+            `<td>${x.distance} m</td>` +
+
+            `<td>${fmt(x.lapMs)}</td>` +
+
+            `<td>${fmt(x.cumulativeMs)}${isExam500() && x.distance===500 ? (()=>{const v=state.exam500Validations.find(v=>v.runnerId===x.runnerId && Number(v.race)===Number(x.race));if(!v||v.status==="pending")return "";const original=fmt(v.rawMs),accepted=fmt(v.teacherMs||v.rawMs),gap=((v.deltaMs||0)/1000).toFixed(2);return v.status==="corrected" ? ' <button type="button" class="exam500-audit" title="Temps élève : '+original+' | Temps professeur : '+accepted+' | Écart : '+gap+' s" onclick="alert(this.title)" style="color:#9a3412;background:#ffedd5;border:1px solid #fdba74;border-radius:6px;cursor:pointer;padding:2px 6px">✏️ Corrigé prof</button>' : ' <span title="Validé sans correction par le professeur" style="color:#15803d">✓</span>';})():""}</td>` +
+
+            `<td>${x.speed.toFixed(1)} km/h</td>` +
+
+            `<td class="${
+              x.deltaMs < 0
+                ? "deltaGood"
+                : x.deltaMs > 0
+                  ? "deltaBad"
+                  : ""
+            }">${signed(x.deltaMs)}</td>` +
+
+            `</tr>`
+
+        )
+        .join("");
+
+  }
+
+
+  function renderStats() {
+
+    const h =
+      state.runners
+        .map(
+          r => {
+
+            const a =
+              state.results.filter(
+                x =>
+                  x.runnerId ===
+                  r.id
+              );
+
+
+            if (!a.length) {
+              return "";
+            }
+
+
+            const laps =
+              a.map(
+                x => x.lapMs
+              );
+
+
+            const last =
+              a.at(-1);
+
+
+            return (
+
+              `<div class="statCard">` +
+
+              `<h3>${esc(r.name)}</h3>` +
+
+              `<div class="statRow">` +
+              `<span>Dernier temps</span>` +
+              `<strong>${fmt(last.cumulativeMs)}</strong>` +
+              `</div>` +
+
+              `<div class="statRow">` +
+              `<span>Vitesse moy.</span>` +
+              `<strong>${spd(last.distance,last.cumulativeMs).toFixed(1)} km/h</strong>` +
+              `</div>` +
+
+              `<div class="statRow">` +
+              `<span>Meilleur passage</span>` +
+              `<strong>${fmt(Math.min(...laps))}</strong>` +
+              `</div>` +
+
+              `<div class="statRow">` +
+              `<span>Plus lent</span>` +
+              `<strong>${fmt(Math.max(...laps))}</strong>` +
+              `</div>` +
+
+              `<div class="statRow">` +
+              `<span>Écart</span>` +
+              `<strong>${short(Math.max(...laps)-Math.min(...laps))}</strong>` +
+              `</div>` +
+
+              `</div>`
+
+            );
+
+          }
+        )
+        .join("");
+
+
+    $("statsGrid").innerHTML =
+      h;
+
+  }
+
+
+  /* =========================================================
+     RESULTAT VMA / MINUTEUR
+  ========================================================= */
+
+  function showTimedResult(
+    runnerId =
+      state.activeRunnerId
+  ) {
+
+    if (
+      !isTimed()
+    ) {
+
+      setVisible(
+        "vmaResultPanel",
+        false
+      );
+
+      return;
+
+    }
+
+
+    const tr =
+      timedRunFor(
+        runnerId
+      );
+
+
+    if (!tr) {
+
+      setVisible(
+        "vmaResultPanel",
+        false
+      );
+
+      return;
+
+    }
+
+
+    setVisible(
+      "vmaResultPanel",
+      true
+    );
+
+
+    $("vmaResultDistance").textContent =
+      `${tr.totalDistance} m`;
+
+
+    $("vmaResultDuration").textContent =
+      fmtClock(
+        tr.durationMs
+      );
+
+
+    $("vmaResultSpeed").textContent =
+      `${tr.speed.toFixed(1)} km/h`;
+
+
+    const main =
+      $("vmaResultValue")
+        ?.closest(
+          ".vmaMainResult"
+        );
+
+
+    if (
+  state.trainingTool === "vma"
+) {
+
+  if (main) {
+    main.classList.remove("hidden");
+  }
+
+
+  const v =
+    tr.vma;
+
+
+  if (
+    v == null
+  ) {
+
+    $("vmaResultValue").textContent =
+      "VMA non calculée";
+
+
+    $("vmaTrainingSpeeds").innerHTML =
+
+      `<div class="statRow">` +
+      `<span>Protocole</span>` +
+      `<strong>${esc(tr.protocolName || "Test personnalisé")}</strong>` +
+      `</div>` +
+
+      `<div class="statRow">` +
+      `<span>Information</span>` +
+      `<strong>Aucun calcul VMA standard pour ce protocole</strong>` +
+      `</div>`;
+
+  } else {
+
+    $("vmaResultValue").textContent =
+      tr.protocol === "12"
+        ? `VMA estimée · ${v.toFixed(1)} km/h`
+        : `${v.toFixed(1)} km/h`;
+
+
+    $("vmaTrainingSpeeds").innerHTML =
+
+      `<div class="statRow">` +
+      `<span>Protocole</span>` +
+      `<strong>${esc(tr.protocolName || "Test VMA")}</strong>` +
+      `</div>` +
+
+      `<div class="statRow">` +
+      `<span>80 % VMA</span>` +
+      `<strong>${(v * .80).toFixed(1)} km/h</strong>` +
+      `</div>` +
+
+      `<div class="statRow">` +
+      `<span>90 % VMA</span>` +
+      `<strong>${(v * .90).toFixed(1)} km/h</strong>` +
+      `</div>` +
+
+      `<div class="statRow">` +
+      `<span>100 % VMA</span>` +
+      `<strong>${v.toFixed(1)} km/h</strong>` +
+      `</div>` +
+
+      `<div class="statRow">` +
+      `<span>105 % VMA</span>` +
+      `<strong>${(v * 1.05).toFixed(1)} km/h</strong>` +
+      `</div>`;
+
+  }
+
+
+    } else {
+
+      if (main) {
+        main.classList.add("hidden");
+      }
+
+
+      $("vmaTrainingSpeeds").innerHTML =
+
+        `<div class="statRow">` +
+        `<span>Tours complets</span>` +
+        `<strong>${tr.laps}</strong>` +
+        `</div>` +
+
+        `<div class="statRow">` +
+        `<span>Distance partielle</span>` +
+        `<strong>${tr.partialDistance} m</strong>` +
+        `</div>`;
+
+    }
+
+  }
+
+
+  /* =========================================================
+     QR CCF
+  ========================================================= */
+
+  function trainingQrPayload(r) {
+
+    if (!r) {
+      return null;
+    }
+
+    if (
+      isSimple() &&
+      elapsedMs > 0
+    ) {
+      return {
+        type:
+          "DF_TRAINING_RESULT",
+        v: 1,
+        tool:
+          "simple",
+        resultId:
+          r.externalId +
+          "-simple-" +
+          Date.now(),
+        studentId:
+          r.externalId,
+        last:
+          safeQrText(r.last),
+        first:
+          safeQrText(r.first),
+        classroom:
+          safeQrText(
+            r.classroom
+          ),
+        sex:
+          safeQrText(r.sex),
+        totalMs:
+          Math.round(
+            elapsedMs
+          ),
+        createdAt:
+          new Date()
+            .toISOString()
+      };
+    }
+
+    if (isChrono()) {
+
+      const races =
+        Array.from(
+          { length: raceCount() },
+          (_, index) => {
+            const race =
+              index + 1;
+
+            const rows =
+              rr(r.id, race)
+                .slice()
+                .sort(
+                  (a, b) =>
+                    a.distance -
+                    b.distance
+                );
+
+            if (
+              rows.length <
+              requiredSplits(race) &&
+              !runnerStopped(r.id,race)
+            ) {
+              return null;
+            }
+
+            if (
+              !rows.length
+            ) {
+              return runnerStopped(r.id,race)
+                ? {
+                    d:
+                      raceDistance(race),
+                    s:
+                      raceSplitDistance(race),
+                    c: [],
+                    stopped: true
+                  }
+                : null;
+            }
+
+            return {
+              d:
+                raceDistance(race),
+              s:
+                raceSplitDistance(race),
+              c:
+                rows.map(
+                  item =>
+                    Math.round(
+                      Number(
+                        item.cumulativeMs
+                      )
+                    )
+                ),
+              stopped:
+                runnerStopped(r.id,race) &&
+                rows.length <
+                  requiredSplits(race)
+            };
+          }
+        );
+
+      if (
+        races.some(
+          race => !race
+        )
+      ) {
+        return null;
+      }
+
+      /*
+       * QR compact : on n'encode que les données non redondantes.
+       * Les temps de segment et vitesses peuvent être recalculés à
+       * partir des cumuls. Cela garde le QR lisible par la caméra iPad.
+       */
+      return {
+        type:
+          "DF_TRAINING_RESULT",
+        v: 3,
+        tool:
+          "chrono",
+        id:
+          r.externalId +
+          "-" +
+          Date.now(),
+        sid:
+          r.externalId,
+        l:
+          safeQrText(r.last),
+        f:
+          safeQrText(r.first),
+        c:
+          safeQrText(
+            r.classroom
+          ),
+        x:
+          safeQrText(r.sex),
+        m:
+          isChronoSeries()
+            ? "series"
+            : "single",
+        r:
+          races,
+        status:
+          races.some(x => x.stopped)
+            ? "medical_stop"
+            : "complete",
+        statusLabel:
+          races.some(x => x.stopped)
+            ? "INAPTE_MEDICAL"
+            : null,
+        stoppedAt:
+          r.stoppedAt ||
+          null
+      };
+    }
+
+
+    if (isTimed()) {
+
+      const tr =
+        timedRunFor(
+          r.id
+        );
+
+      if (!tr) {
+        if (!r.stopped) {
+          return null;
+        }
+
+        return {
+          type:
+            "DF_TRAINING_RESULT",
+          v: 2,
+          tool:
+            state.trainingTool,
+          resultId:
+            r.externalId +
+            "-medical-stop-" +
+            Date.now(),
+          studentId:
+            r.externalId,
+          last:
+            safeQrText(r.last),
+          first:
+            safeQrText(r.first),
+          classroom:
+            safeQrText(r.classroom),
+          sex:
+            safeQrText(r.sex),
+          status:
+            "medical_stop",
+          statusLabel:
+            "INAPTE_MEDICAL",
+          stoppedAt:
+            r.stoppedAt ||
+            new Date().toISOString(),
+          createdAt:
+            new Date().toISOString()
+        };
+      }
+
+      return {
+        type:
+          "DF_TRAINING_RESULT",
+        v: 1,
+        tool:
+          tr.tool ||
+          state.trainingTool,
+        resultId:
+          r.externalId +
+          "-" +
+          (tr.tool || state.trainingTool) +
+          "-" +
+          (tr.id || Date.now()),
+        studentId:
+          r.externalId,
+        last:
+          safeQrText(r.last),
+        first:
+          safeQrText(r.first),
+        classroom:
+          safeQrText(
+            r.classroom
+          ),
+        sex:
+          safeQrText(r.sex),
+        durationMs:
+          Math.round(
+            tr.durationMs || 0
+          ),
+        trackDistance:
+          Math.round(
+            tr.track || 0
+          ),
+        laps:
+          Math.round(
+            tr.laps || 0
+          ),
+        partialDistance:
+          Math.round(
+            tr.partialDistance || 0
+          ),
+        totalDistance:
+          Math.round(
+            tr.totalDistance || 0
+          ),
+        speed:
+          Number(
+            tr.speed || 0
+          ),
+        vma:
+          tr.vma == null
+            ? null
+            : Number(
+                tr.vma
+              ),
+        protocol:
+          tr.protocol ||
+          null,
+        createdAt:
+          tr.createdAt ||
+          new Date()
+            .toISOString(),
+        status:
+          [1,2,3].some(n => runnerStopped(r.id,n))
+            ? "medical_stop"
+            : "complete",
+        statusLabel:
+          [1,2,3].some(n => runnerStopped(r.id,n))
+            ? "INAPTE_MEDICAL"
+            : null,
+        stoppedAt:
+          r.stoppedAt ||
+          null
+      };
+    }
+
+    return null;
+  }
+
+
+  function qrPayload(r,race) {
+
+    if (isExam500()) {
+
+      const races =
+        [1,2,3].map(
+          n => rr(r.id,n)
+        );
+
+      if (
+        races.some(
+          (a,i) => a.length < 2 && !runnerStopped(r.id,i+1)
+        )
+      ) {
+        return null;
+      }
+
+      return {
+        type: "DF_3X500_RESULT",
+        v: 1,
+        resultId:
+          r.externalId + "-3x500-" + Date.now(),
+        studentId: r.externalId,
+        last: safeQrText(r.last),
+        first: safeQrText(r.first),
+        classroom:
+          safeQrText(r.classroom),
+        sex: safeQrText(r.sex),
+        evaluationConfig: {
+          level: state.exam500Level,
+          estimationCount: state.exam500EstimateC3 ? 3 : 2,
+          regularityMode: state.exam500Regularity
+        },
+        projects: [
+          fmt(r.project1Ms),
+          fmt(r.project2Ms),
+          state.exam500EstimateC3 ? fmt(r.project3Ms) : null
+        ],
+        races:
+          races.map(
+            (a,index) => ({
+              race: index + 1,
+              project:
+                index === 0
+                  ? fmt(r.project1Ms)
+                  : index === 1
+                    ? fmt(r.project2Ms)
+                    : state.exam500EstimateC3 ? fmt(r.project3Ms) : null,
+              split250Ms:
+                a[0]
+                  ? Math.round(
+                      a[0].cumulativeMs
+                    )
+                  : null,
+              total500Ms:
+                a[1]
+                  ? Math.round(
+                      a[1].cumulativeMs
+                    )
+                  : null,
+              stopped:
+                runnerStopped(r.id,index+1) &&
+                a.length < 2
+            })
+          ),
+        status:
+          r.stopped
+            ? "medical_stop"
+            : "complete",
+        statusLabel:
+          r.stopped
+            ? "INAPTE_MEDICAL"
+            : null,
+        stoppedAt:
+          r.stoppedAt ||
+          null,
+        createdAt:
+          new Date().toISOString(),
+        ...(state.exam500Supervised ? {
+          supervised: true,
+          validation: [1,2,3].map(n=>{const v=validation500(r.id,n);return v ? [n,v.status==="pending"?"P":v.status==="corrected"?"C":"O",Math.round((v.deltaMs||0)/1000),v.status==="corrected"?Math.round(v.rawMs):null] : [n,"P",0,null];}),
+          // QR compact : le détail des observations reste dans le bilan local.
+          // Éviter un QR trop dense, difficile à lire sur iPad.
+          observerAudit: (()=>{const audit=observerAudit500(r.id);return {correct:audit.correct,total:audit.total,expected:3,score:audit.score};})()
+        } : {})
+      };
+
+    }
+
+
+
+    const a =
+      rr(
+        r.id,
+        race
+      );
+
+
+    if (
+      a.length < 4 &&
+      !runnerStopped(r.id,race)
+    ) {
+
+      return null;
+
+    }
+
+
+    return {
+
+      type:
+        "DF_CCF_RESULT",
+
+      v:
+        1,
+
+      resultId:
+        `${r.externalId}-${race}-${Date.now()}`,
+
+      studentId:
+        r.externalId,
+
+      last:
+        safeQrText(r.last),
+
+      first:
+        safeQrText(r.first),
+
+      classroom:
+        safeQrText(r.classroom),
+
+      sex:
+        safeQrText(r.sex),
+
+      race,
+
+      project:
+        fmt(
+          race === 1
+            ? r.project1Ms
+            : race === 2 ? r.project2Ms : r.project3Ms
+        ),
+
+      splits:
+        a.map(
+          x =>
+            Math.round(
+              x.cumulativeMs
+            )
+        ),
+
+      totalMs:
+        a.length
+          ? Math.round(
+              a.at(-1).cumulativeMs
+            )
+          : null,
+
+      status:
+        runnerStopped(r.id,race)
+          ? "medical_stop"
+          : "complete",
+
+      statusLabel:
+        runnerStopped(r.id,race)
+          ? "INAPTE_MEDICAL"
+          : null,
+
+      stoppedAt:
+        r.stoppedAt ||
+        null,
+
+      createdAt:
+        new Date().toISOString()
+
+    };
+
+  }
+
+
+  function ensureQrDialog() {
+
+    if (
+      $("teacherQrDialog")
+    ) {
+      return;
+    }
+
+
+    const d =
+      document.createElement(
+        "dialog"
+      );
+
+
+    d.id =
+      "teacherQrDialog";
+
+
+    d.innerHTML =
+
+      '<div class="dialogPanel">' +
+
+      '<h3 id="teacherQrTitle">QR professeur</h3>' +
+
+      '<div id="teacherQrBox" style="display:flex;justify-content:center;margin:18px"></div>' +
+
+      '<p>À scanner dans DemiFond Scan CCF.</p>' +
+
+      '<button id="teacherQrClose" class="btn soft full">Fermer</button>' +
+
+      '</div>';
+
+
+    document.body.appendChild(d);
+
+
+    $("teacherQrClose").onclick =
+      () =>
+        d.close();
+
+  }
+
+
+  function showTeacherQR(
+    rid,
+    race
+  ) {
+
+    const r =
+      state.runners.find(
+        x =>
+          x.id === rid
+      );
+
+
+    const payload =
+      r &&
+      qrPayload(
+        r,
+        race
+      );
+
+
+    if (!payload) {
+
+      return toast(
+        "Course non terminée."
+      );
+
+    }
+
+
+    ensureQrDialog();
+
+
+    $("teacherQrTitle").textContent =
+      isExam500()
+        ? `${r.last.toUpperCase()} ${r.first} · 3 × 500 m`
+        : runnerStopped(r.id,race)
+          ? `${r.last.toUpperCase()} ${r.first} · ARRÊT MÉDICAL · 800 n°${race}`
+          : `${r.last.toUpperCase()} ${r.first} · 800 n°${race}`;
+
+
+    const box =
+      $("teacherQrBox");
+
+
+    box.innerHTML =
+      "";
+
+
+    if (
+      window.QRCode
+    ) {
+
+      try {
+
+        const qrText =
+          JSON.stringify(
+            payload
+          );
+
+        new QRCode(
+          box,
+          {
+
+            text:
+              qrText,
+
+            width:
+              440,
+
+            height:
+              440,
+
+            correctLevel:
+              QRCode.CorrectLevel.L
+
+          }
+        );
+
+      } catch (error) {
+
+        console.error(
+          "QR generation failed",
+          error
+        );
+
+        box.innerHTML =
+          '<p>Impossible de générer le QR code. Les caractères du nom ont été sécurisés ; réessaie ou recrée l’élève.</p>';
+
+      }
+
+    } else {
+
+      box.innerHTML =
+        '<p>Générateur QR indisponible. Ouvre une fois l’application avec Internet avant le cours.</p>';
+
+    }
+
+
+    $("teacherQrDialog").showModal();
+
+  }
+
+
+  function renderInlineQr(
+    host,
+    payload,
+    title
+  ) {
+
+    if (
+      !host ||
+      !payload
+    ) {
+      return;
+    }
+
+    host.innerHTML =
+      '<div class="scoreCard" style="margin-top:14px">' +
+      '<strong>' +
+      esc(title) +
+      '</strong>' +
+      '<div class="inlineTeacherQr" style="display:flex;justify-content:center;margin:14px 0"></div>' +
+      '<span>QR professeur · à scanner dans DemiFond Scan</span>' +
+      '</div>';
+
+    const box =
+      host.querySelector(
+        ".inlineTeacherQr"
+      );
+
+    if (
+      window.QRCode
+    ) {
+
+      try {
+
+        new QRCode(
+          box,
+          {
+            text:
+              JSON.stringify(
+                payload
+              ),
+            width:
+              400,
+            height:
+              400,
+            correctLevel:
+              QRCode
+                .CorrectLevel
+                .L
+          }
+        );
+
+      } catch (error) {
+
+        console.error(
+          "QR inline failed",
+          error
+        );
+
+        box.innerHTML =
+          "<p>Impossible de générer le QR.</p>";
+
+      }
+
+    } else {
+
+      box.innerHTML =
+        "<p>Générateur QR indisponible.</p>";
+
+    }
+
+  }
+
+
+  function renderTeacherQrActions() {
+
+    const host =
+      $("teacherQrActions");
+
+
+    if (!host) {
+      return;
+    }
+
+
+    if (
+      !isExamMode()
+    ) {
+
+      host.innerHTML =
+        "";
+
+      return;
+
+    }
+
+
+    if (isExam500()) {
+
+      host.innerHTML =
+        "";
+
+      state.runners
+        .filter(
+          r =>
+            [1,2,3].every(
+              race => done(r.id,race) && (!supervised500() || (validation500(r.id,race)?.status !== "pending" && !!validation500(r.id,race)))
+            )
+        )
+        .forEach(
+          r => {
+            const item =
+              document
+                .createElement(
+                  "div"
+                );
+
+            host.appendChild(
+              item
+            );
+
+            renderInlineQr(
+              item,
+              qrPayload(
+                r,
+                3
+              ),
+              r.last.toUpperCase() +
+              " " +
+              r.first +
+              " · 3 × 500 m"
+            );
+          }
+        );
+
+      return;
+
+    }
+
+
+    host.innerHTML =
+      state.runners
+        .map(
+          r => {
+
+            const racesForQr =
+              [1,2].filter(race =>
+                runnerStopped(r.id,race) ||
+                rr(r.id,race).length >= requiredSplits(race)
+              );
+
+            const buttons =
+              racesForQr
+                .filter(
+                  race =>
+                    [1,2].includes(race)
+                )
+                .map(
+                  race =>
+
+                    `<button ` +
+                    `class="btn primary" ` +
+                    `data-qr-runner="${r.id}" ` +
+                    `data-qr-race="${race}">` +
+                    `QR prof · ${esc(r.last.toUpperCase())} · ` +
+                    (
+                      runnerStopped(r.id,race)
+                        ? `ARRÊT MÉDICAL · 800 n°${race}`
+                        : `800 n°${race}`
+                    ) +
+                    `</button>`
+
+                )
+                .join(" ");
+
+
+            return buttons
+              ? `<div style="margin-top:10px">${buttons}</div>`
+              : "";
+
+          }
+        )
+        .join("");
+
+
+    host
+      .querySelectorAll(
+        "[data-qr-runner]"
+      )
+      .forEach(
+        b =>
+
+          b.onclick =
+            () =>
+              showTeacherQR(
+                b.dataset.qrRunner,
+                +b.dataset.qrRace
+              )
+
+      );
+
+  }
+
+
+  function renderCCF() {
+
+    const box =
+      $("ccfScores");
+
+
+    if (
+      !isExamMode()
+    ) {
+
+      box.classList.add("hidden");
+
+      renderTeacherQrActions();
+
+      return;
+
+    }
+
+
+    if (isExam500()) {
+
+      box.innerHTML =
+        "<h3>Examen 3 × 500 m</h3>" +
+        "<p>Résultats enregistrés. La note sera calculée dans DemiFond Scan après lecture du QR professeur.</p>" +
+        (supervised500() ? state.runners.map(r=>"<p><b>"+esc(r.name)+"</b> · "+[1,2,3].map(n=>{const v=validation500(r.id,n);return "C"+n+": "+(!v?"à courir":v.status==="pending"?"validation attendue":v.status==="corrected"?"PROF "+fmt(v.teacherMs)+" (écart "+Math.round(v.deltaMs/1000)+" s)":"OK");}).join(" · ")+"</p>").join("") : "");
+
+      box.classList.remove("hidden");
+      $("teacherRevealBtn").classList.add("hidden");
+      renderTeacherQrActions();
+      return;
+
+    }
+
+
+    const cards =
+      state.runners
+        .map(
+          r => {
+
+            const s =
+              ccfSummary(r);
+
+
+            return s.complete
+
+              ? `<div class="scoreCard">` +
+
+                `<strong>${esc(r.name)}</strong>` +
+
+                `<span>Meilleur 800 : ${fmt(s.best)}</span>` +
+
+                `<span>Performance : <b>${s.perf.toFixed(2)} / 6</b></span>` +
+
+                `<span>Régularité : <b>${s.reg.toFixed(2)} / 6</b></span>` +
+
+                `<span class="scoreTotal">AFL1 : ${s.total.toFixed(2)} / 12</span>` +
+
+                `</div>`
+
+              : `<div class="scoreCard">` +
+
+                `<strong>${esc(r.name)}</strong>` +
+
+                `<span>En attente des deux 800 m.</span>` +
+
+                `</div>`;
+
+          }
+        )
+        .join("");
+
+
+    box.innerHTML =
+
+      `<h3>Note CCF — AFL1</h3>` +
+
+      `<div class="scoreGrid">${cards}</div>`;
+
+
+    box.classList.remove("hidden");
+
+
+    $("teacherRevealBtn")
+      .classList
+      .add("hidden");
+
+
+    renderTeacherQrActions();
+
+  }
+
+
+  /* =========================================================
+     ECRAN PERFORMANCE
+  ========================================================= */
+
+  function renderPerf() {
+    refreshSupervised500();
+    // Le dialogue est ouvert uniquement par ARRIVÉE (ou par une demande
+    // explicite de reprise) : jamais pendant le rendu de la page.
+
+    const ccf =
+      state.mode === "ccf";
+
+    const exam500 =
+      isExam500();
+
+    const examMode =
+      ccf || exam500;
+
+
+    if (
+      isSimple()
+    ) {
+
+      $("perfRecap").innerHTML =
+        `<span>Chrono simple</span>`;
+
+
+    } else if (
+      isTimed()
+    ) {
+
+      const toolLabel =
+
+        state.trainingTool === "vma"
+
+          ? state.vmaProtocol === "6"
+            ? "Demi-Cooper"
+
+            : state.vmaProtocol === "12"
+              ? "Cooper"
+
+              : "Test VMA personnalisé"
+
+          : "Minuteur / Tours";
+
+
+      $("perfRecap").innerHTML =
+
+        `<span>${toolLabel}</span>` +
+
+        `<span>${fmtClock(currentTimedDuration())}</span>` +
+
+        `<span>Piste ${currentTrackDistance()} m</span>`;
+
+
+    } else {
+
+      $("perfRecap").innerHTML =
+
+        `<span>${raceDistance()} m</span>` +
+
+        (raceSplitDistance() < raceDistance() ? `<span>Inter. ${raceSplitDistance()} m</span>` : '<span>Sans intermédiaire</span>') +
+
+        `${
+          examMode
+            ? `<span>${exam500 ? "500" : "800"} n°${state.activeRace}</span>`
+            : ""
+        }`;
+
+    }
+
+
+    setVisible(
+      "raceTabs",
+      examMode
+    );
+
+    setVisible(
+      "trainingSequenceTabs",
+      isChronoSeries()
+    );
+
+    const sequenceTabs =
+      $("trainingSequenceTabs");
+
+    if (
+      sequenceTabs &&
+      isChronoSeries()
+    ) {
+      sequenceTabs.innerHTML =
+        state.chronoSeriesDistances
+          .map(
+            (distance,index) =>
+              '<button type="button" data-series-race="' +
+              (index + 1) +
+              '" class="' +
+              (
+                state.activeRace === index + 1
+                  ? "active"
+                  : ""
+              ) +
+              '">' +
+              (index + 1) +
+              ". " +
+              distance +
+              " m</button>"
+          )
+          .join("");
+
+      sequenceTabs
+        .querySelectorAll(
+          "[data-series-race]"
+        )
+        .forEach(
+          button => {
+            button.onclick =
+              () =>
+                setRace(
+                  Number(
+                    button.dataset
+                      .seriesRace
+                  )
+                );
+          }
+        );
+    }
+
+
+    document
+      .querySelectorAll(
+        "[data-race]"
+      )
+      .forEach(
+        x => {
+          const race = +x.dataset.race;
+
+          x.classList.toggle(
+            "active",
+            race === state.activeRace
+          );
+
+          if (race === 3) {
+            x.classList.toggle(
+              "hidden",
+              !exam500
+            );
+          }
+
+          if (race <= 2) {
+            x.textContent =
+              exam500
+                ? `500 m n°${race}`
+                : `800 m n°${race}`;
+          }
+        }
+      );
+
+    setVisible(
+      "runnerPerformanceBlock",
+      !isSimple()
+    );
+
+
+    setVisible(
+      "resultsSection",
+      examMode ||
+      isChrono()
+    );
+
+
+    setVisible(
+      "exportSection",
+
+      (
+        isSimple() &&
+        !running &&
+        elapsedMs > 0
+      ) ||
+      (
+        !isSimple() &&
+        (
+          examMode ||
+          isChrono() ||
+          state.timedRuns.some(
+            x =>
+              x.tool ===
+              state.trainingTool
+          )
+        )
+      )
+    );
+
+
+    if (
+      !timedFinished
+    ) {
+
+      setVisible(
+        "timerFinishPanel",
+        false
+      );
+
+    }
+
+
+    renderTimer();
+
+    renderProjection();
+
+
+    if (
+      !isSimple()
+    ) {
+
+      renderRunners();
+
+    }
+
+
+    if (
+      examMode ||
+      isChrono()
+    ) {
+
+      renderResults();
+
+      renderStats();
+
+      renderCCF();
+
+    } else {
+
+      setVisible(
+        "vmaResultPanel",
+        false
+      );
+
+
+      showTimedResult();
+
+
+      $("ccfScores")
+        .classList
+        .add("hidden");
+
+
+      renderTeacherQrActions();
+
+    }
+
+    const exportQrHost =
+      $("teacherQrExportActions");
+
+    if (exportQrHost) {
+
+      exportQrHost.innerHTML =
+        "";
+
+      if (!running) {
+        state.runners.forEach(item => {
+          const complete = isSimple()
+              ? elapsedMs > 0
+              : isTimed()
+              ? !!timedRunFor(item.id)
+              : isChrono() && Array.from(
+                  { length: raceCount() },
+                  (_, index) => done(item.id, index + 1)
+                ).every(Boolean);
+
+          if (!complete) return;
+          const payload = trainingQrPayload(item);
+          if (!payload) return;
+
+          const host = document.createElement("div");
+          exportQrHost.appendChild(host);
+          const label = isSimple()
+            ? "Chrono simple"
+            : isChronoSeries()
+              ? "Série / pyramide"
+              : isChrono()
+                ? "Chrono performance"
+                : payload.tool === "vma"
+                  ? "Test VMA"
+                  : "Minuteur / Tours";
+          renderInlineQr(
+            host,
+            payload,
+            `${item.last.toUpperCase()} ${item.first} · ${label}`
+          );
+        });
+      }
+
+    }
+
+  }
+
+
+  function render() {
+    refreshSupervised500();
+
+    document.body.classList.toggle("setup-tools", state.view === "setup" && setupStep === "tools");
+
+    document.body.classList.toggle("setup-cover", state.view === "setup" && setupStep === "cover");
+
+    $("setupPanel")
+      .classList
+      .toggle(
+        "hidden",
+        state.view !== "setup" || sharedStudentWelcome
+      );
+
+    renderSharedStudentWelcome();
+
+
+    $("performancePanel")
+      .classList
+      .toggle(
+        "hidden",
+        state.view !== "performance"
+      );
+
+
+    state.view === "setup"
+      ? renderSetup()
+      : renderPerf();
+
+  }
+
+
+  /* =========================================================
+     EXPORT
+  ========================================================= */
+
+  function selectedExportRunner() {
+
+    return (
+      state.runners.find(
+        r =>
+          r.id === exportRunnerId
+      ) ||
+      activeRunner() ||
+      state.runners[0]
+    );
+
+  }
+
+
+  function resultTextFor(r) {
+
+    if (
+      isSimple()
+    ) {
+
+      if (
+        !elapsedMs
+      ) {
+        return "";
+      }
+
+      const identity =
+        r
+          ? (
+              (r.last
+                ? r.last.toUpperCase() +
+                  " " +
+                  r.first
+                : r.name) +
+              (r.classroom
+                ? " · " +
+                  r.classroom
+                : "")
+            )
+          : "";
+
+      return (
+        "CHRONO SIMPLE\n" +
+        (identity
+          ? identity + "\n\n"
+          : "\n") +
+        "Temps total : " +
+        fmt(elapsedMs)
+      );
+
+    }
+
+
+    if (!r) {
+      return "";
+    }
+
+    const identity =
+      (r.last
+        ? r.last.toUpperCase() + " " + r.first
+        : r.name) +
+      (r.classroom ? " · " + r.classroom : "");
+
+    if (isTimed()) {
+
+      const tr =
+        timedRunFor(r.id);
+
+      if (!tr) {
+        return identity;
+      }
+
+      return (
+        "🏃 " + identity + "\n\n" +
+        "⏱ " +
+        (tr.tool === "vma"
+          ? tr.protocolName || "Test VMA"
+          : "Minuteur / Tours") + "\n\n" +
+        "⏳ Durée : " + fmtClock(tr.durationMs) + "\n" +
+        "🔁 Tours : " + tr.laps + "\n" +
+        "📏 Distance : " + tr.totalDistance + " m\n" +
+        "⚡ Vitesse moyenne : " + tr.speed.toFixed(1) + " km/h" +
+        (tr.vma != null
+          ? "\n🚀 VMA estimée : " + tr.vma.toFixed(1) + " km/h"
+          : "")
+      );
+
+    }
+
+    const results =
+      state.results
+        .filter(x => x.runnerId === r.id);
+
+    if (!results.length) {
+      return identity;
+    }
+
+    if (isExamMode()) {
+
+      const distance =
+        isExam500() ? 500 : 800;
+
+      const split =
+        isExam500() ? 250 : 200;
+
+      const races =
+        [...new Set(
+          results.map(x => x.race)
+        )].sort((a,b) => a-b);
+
+      const lines = [
+        "🏃 DEMI-FOND · " +
+          (isExam500() ? "3 × 500 m" : "2 × 800 m"),
+        identity,
+        ""
+      ];
+
+      races.forEach(race => {
+        const a =
+          results
+            .filter(x => x.race === race)
+            .sort((x,y) => x.distance - y.distance);
+
+        const finish =
+          a.at(-1);
+
+        if (!finish) {
+          return;
+        }
+
+        const project =
+          race === 1
+            ? r.project1Ms
+            : race === 2
+              ? r.project2Ms
+              : null;
+
+        const title =
+          "Course " + race +
+          " · " + distance + " m";
+
+        lines.push(title);
+
+        const summary = [
+          project
+            ? "Projet " + fmt(project)
+            : isExam500() && race === 3
+              ? "Libre"
+              : null,
+          "Réalisé " + fmt(finish.cumulativeMs),
+          project
+            ? "Écart " +
+              (
+                finish.cumulativeMs - project > 0
+                  ? "+"
+                  : finish.cumulativeMs - project < 0
+                    ? "−"
+                    : "±"
+              ) +
+              short(
+                finish.cumulativeMs - project
+              )
+            : null
+        ].filter(Boolean);
+
+        lines.push(
+          summary.join(" · ")
+        );
+
+        lines.push(
+          "Repères : " +
+          a.map(
+            x =>
+              x.distance +
+              " m " +
+              fmt(x.cumulativeMs)
+          ).join(" · ")
+        );
+
+        if (a.length > 1) {
+          lines.push(
+            "Segments : " +
+            a.map(
+              (x,index) => {
+                const start =
+                  index * split;
+
+                return (
+                  start +
+                  "–" +
+                  x.distance +
+                  " m " +
+                  fmt(x.lapMs)
+                );
+              }
+            ).join(" · ")
+          );
+        }
+
+        lines.push("");
+      });
+
+      const finishes =
+        races
+          .map(race => {
+            const a =
+              results
+                .filter(x => x.race === race)
+                .sort((x,y) => x.distance - y.distance);
+            return a.at(-1);
+          })
+          .filter(Boolean);
+
+      if (finishes.length) {
+        const best =
+          finishes.reduce(
+            (a,b) =>
+              a.cumulativeMs <= b.cumulativeMs
+                ? a
+                : b
+          );
+
+        const segments =
+          results.filter(
+            x => x.lapMs > 0
+          );
+
+        const fastest =
+          segments.length
+            ? segments.reduce(
+                (a,b) =>
+                  a.lapMs <= b.lapMs ? a : b
+              )
+            : null;
+
+        const slowest =
+          segments.length
+            ? segments.reduce(
+                (a,b) =>
+                  a.lapMs >= b.lapMs ? a : b
+              )
+            : null;
+
+        lines.push("BILAN");
+        lines.push(
+          "Meilleur " +
+          distance +
+          " m : " +
+          fmt(best.cumulativeMs)
+        );
+
+        if (fastest && slowest) {
+          lines.push(
+            "Meilleur " +
+            split +
+            " m : " +
+            fmt(fastest.lapMs) +
+            " (" +
+            Math.max(
+              0,
+              fastest.distance - split
+            ) +
+            "–" +
+            fastest.distance +
+            " m)"
+          );
+
+          lines.push(
+            "Moins bon " +
+            split +
+            " m : " +
+            fmt(slowest.lapMs) +
+            " (" +
+            Math.max(
+              0,
+              slowest.distance - split
+            ) +
+            "–" +
+            slowest.distance +
+            " m)"
+          );
+        }
+      }
+
+      return lines.join("\n");
+
+    }
+
+    if (
+      isChronoSeries()
+    ) {
+
+      const lines = [
+        "🏃 CHRONO PERFORMANCE · SÉRIE / PYRAMIDE",
+        identity,
+        ""
+      ];
+
+      for (
+        let race = 1;
+        race <= raceCount();
+        race++
+      ) {
+
+        const rows =
+          results
+            .filter(
+              item =>
+                item.race === race
+            )
+            .sort(
+              (a,b) =>
+                a.distance -
+                b.distance
+            );
+
+        if (!rows.length) {
+          continue;
+        }
+
+        lines.push(
+          "▶ Course " +
+          race +
+          " · " +
+          raceDistance(race) +
+          " m"
+        );
+
+        rows.forEach(
+          item => {
+
+            lines.push(
+              item.distance +
+              " m : " +
+              fmt(
+                item.cumulativeMs
+              ) +
+              (
+                rows.length > 1
+                  ? " · segment " +
+                    fmt(item.lapMs)
+                  : ""
+              )
+            );
+
+          }
+        );
+
+        lines.push("");
+
+      }
+
+      return lines.join("\n");
+
+    }
+
+
+    return (
+      "🏃 " + identity + "\n\n" +
+      results
+        .map(
+          x =>
+            "📍 " + x.distance + " m\n" +
+            "   ⏱ " + fmt(x.cumulativeMs) +
+            " · tour " + fmt(x.lapMs) + "\n" +
+            "   ⚡ " + x.speed.toFixed(1) + " km/h"
+        )
+        .join("\n\n")
+    );
+
+  }
+
+
+  function prepareExportDialog() {
+
+    const panel =
+      $("carnetDialog")
+        .querySelector(
+          ".dialogPanel"
+        );
+
+
+    const old =
+      $("exportRunnerChoices");
+
+
+    if (old) {
+      old.remove();
+    }
+
+
+    if (
+      state.runners.length > 1
+    ) {
+
+      const d =
+        document.createElement(
+          "div"
+        );
+
+
+      d.id =
+        "exportRunnerChoices";
+
+
+      d.innerHTML =
+
+        '<p><strong>Quels résultats veux-tu récupérer ?</strong></p>' +
+
+        state.runners
+          .map(
+            r =>
+
+              `<button ` +
+              `type="button" ` +
+              `class="choiceBtn exportRunnerChoice" ` +
+              `data-export-runner="${r.id}">` +
+
+              `<strong>${
+                esc(
+                  r.last
+                    ? r.last.toUpperCase() +
+                      " " +
+                      r.first
+                    : r.name
+                )
+              }</strong>` +
+
+              `<span>${esc(r.classroom || "")}</span>` +
+
+              `</button>`
+
+          )
+          .join("");
+
+
+      panel.insertBefore(
+        d,
+        $("openCarnetBtn")
+      );
+
+
+      d.querySelectorAll(
+        "[data-export-runner]"
+      )
+      .forEach(
+        b => {
+
+          b.onclick =
+            () => {
+
+              exportRunnerId =
+                b.dataset.exportRunner;
+
+
+              d.querySelectorAll(
+                "button"
+              )
+              .forEach(
+                x =>
+                  x.classList.toggle(
+                    "active",
+                    x === b
+                  )
+              );
+
+            };
+
+        }
+      );
+
+
+    } else {
+
+      exportRunnerId =
+        state.runners[0]?.id ||
+        null;
+
+    }
+
+  }
+
+
+  async function openCarnet() {
+
+    const r =
+      selectedExportRunner();
+
+
+    const text =
+      resultTextFor(r);
+
+
+    if (
+      !text
+    ) {
+
+      return toast(
+        "Aucun résultat à exporter."
+      );
+
+    }
+
+
+    try {
+
+      await navigator
+        .clipboard
+        .writeText(text);
+
+    } catch {}
+
+
+    window.open(
+      CARNET_URL,
+      "_blank"
+    );
+
+  }
+
+
+  function carnetResultsFile() {
+    const r = selectedExportRunner();
+    const result = resultTextFor(r);
+    if (!result || !r) {
+      toast("Aucun résultat à enregistrer pour ce coureur.");
+      return null;
+    }
+
+    // Le bouton « Importer » du Carnet accepte les champs html et text.
+    const html = result.split(/\r?\n/)
+      .map(line => `<div>${esc(line) || "<br>"}</div>`)
+      .join("");
+    const name = `${r.last || r.name || "eleve"}_${r.first || ""}`
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9_-]+/g, "_");
+    return new File(
+      [JSON.stringify({ html, text: result }, null, 2)],
+      `ChronoCarnet_${name}_${new Date().toISOString().slice(0, 10)}.json`,
+      { type: "application/json" }
+    );
+  }
+
+  function downloadResultsForCarnet() {
+    const file = carnetResultsFile();
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = file.name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+
+  async function shareResultsForCarnet() {
+    const file = carnetResultsFile();
+    if (!file) return;
+
+    if (!navigator.share || !navigator.canShare?.({ files: [file] })) {
+      downloadResultsForCarnet();
+      return toast("Fichier enregistré : retrouve-le dans Téléchargements pour l’envoyer.");
+    }
+
+    try {
+      await navigator.share({ files: [file], title: "Résultats Chrono Carnet" });
+    } catch (error) {
+      if (error?.name !== "AbortError") {
+        toast("Partage impossible. Utilise « Enregistrer pour mon Carnet ».");
+      }
+    }
+  }
+
+
+  function buildSheet() {
+
+    const r =
+      selectedExportRunner();
+
+
+    if (
+      isSimple()
+    ) {
+
+      if (
+        !elapsedMs
+      ) {
+        return toast(
+          "Aucun résultat à afficher."
+        );
+      }
+
+      $("captureSheet").innerHTML =
+
+        '<div class="captureTitle">' +
+        '<h2>Chrono simple</h2>' +
+        '<p>' +
+        new Date().toLocaleDateString("fr-FR") +
+        '</p>' +
+        '</div>' +
+        '<section class="captureRunner">' +
+        '<table class="captureTable"><tbody>' +
+        '<tr><th>Temps total</th><td>' +
+        fmt(elapsedMs) +
+        '</td></tr>' +
+        '</tbody></table>' +
+        '</section>';
+
+      $("carnetDialog").close();
+
+      $("sheetDialog").showModal();
+
+      return;
+
+    }
+
+
+    if (!r) {
+      return;
+    }
+
+
+    if (
+      isTimed()
+    ) {
+
+      const tr =
+        timedRunFor(
+          r.id
+        );
+
+
+      if (!tr) {
+
+        return toast(
+          "Aucun résultat pour ce coureur."
+        );
+
+      }
+
+
+      $("captureSheet").innerHTML =
+
+        `<div class="captureTitle">` +
+
+        `<h2>${
+          esc(
+            r.last
+              ? r.last.toUpperCase() +
+                " " +
+                r.first
+              : r.name
+          )
+        }</h2>` +
+
+        `<p>${esc(r.classroom || "")} · ${new Date().toLocaleDateString("fr-FR")}</p>` +
+
+        `</div>` +
+
+        `<section class="captureRunner">` +
+
+        `<table class="captureTable">` +
+
+        `<tbody>` +
+
+        `${
+          tr.protocolName
+            ? `<tr>` +
+              `<th>Protocole</th>` +
+              `<td>${esc(tr.protocolName)}</td>` +
+              `</tr>`
+            : ""
+        }` +
+
+        `<tr>` +
+        `<th>Durée</th>` +
+        `<td>${fmtClock(tr.durationMs)}</td>` +
+        `</tr>` +
+
+        `<tr>` +
+        `<th>Tours</th>` +
+        `<td>${tr.laps}</td>` +
+        `</tr>` +
+
+        `<tr>` +
+        `<th>Distance</th>` +
+        `<td>${tr.totalDistance} m</td>` +
+        `</tr>` +
+
+        `<tr>` +
+        `<th>Vitesse moyenne</th>` +
+        `<td>${tr.speed.toFixed(1)} km/h</td>` +
+        `</tr>` +
+
+        `${
+          tr.vma != null
+            ? `<tr>` +
+              `<th>VMA estimée</th>` +
+              `<td>${tr.vma.toFixed(1)} km/h</td>` +
+              `</tr>`
+            : ""
+        }` +
+
+        `</tbody>` +
+
+        `</table>` +
+
+        `</section>`;
+
+
+    } else {
+
+      $("captureSheet").innerHTML =
+
+        `<div class="captureTitle">` +
+
+        `<h2>${
+          esc(
+            r.last
+              ? r.last.toUpperCase() +
+                " " +
+                r.first
+              : r.name
+          )
+        }</h2>` +
+
+        `<p>${esc(r.classroom || "")} · ${new Date().toLocaleDateString("fr-FR")}</p>` +
+
+        `</div>` +
+
+        `<section class="captureRunner">` +
+
+        `<table class="captureTable">` +
+
+        `<thead>` +
+
+        `<tr>` +
+
+        `<th>Course</th>` +
+
+        `<th>Passage</th>` +
+
+        `<th>Tour</th>` +
+
+        `<th>Cumul</th>` +
+
+        `<th>Vitesse</th>` +
+
+        `</tr>` +
+
+        `</thead>` +
+
+        `<tbody>` +
+
+        state.results
+          .filter(
+            x =>
+              x.runnerId === r.id
+          )
+          .map(
+            x =>
+
+              `<tr>` +
+
+              `<td>${
+                state.mode === "ccf"
+                  ? x.race
+                  : "—"
+              }</td>` +
+
+              `<td>${x.distance} m</td>` +
+
+              `<td>${fmt(x.lapMs)}</td>` +
+
+              `<td style="${x.teacherCorrected?"color:#be123c;font-weight:900":""}">${fmt(x.cumulativeMs)}${x.teacherCorrected?" · PROF":""}</td>` +
+
+              `<td>${x.speed.toFixed(1)} km/h</td>` +
+
+              `</tr>`
+
+          )
+          .join("") +
+
+        `</tbody>` +
+
+        `</table>` +
+
+        `</section>`;
+
+    }
+
+
+    $("carnetDialog").close();
+
+    $("sheetDialog").showModal();
+
+  }
+
+
+  /* =========================================================
+     RECUPERATION CCF
+  ========================================================= */
+
+  function updateRecovery() {
+
+    if (!$("recoveryDisplay")) {
+      return;
+    }
+
+    if (
+      !state.recoveryStartedAt
+    ) {
+
+      $("recoveryDisplay").textContent =
+        "";
+
+      return;
+
+    }
+
+
+    const left =
+      Math.max(
+        0,
+        720000 -
+        (
+          Date.now() -
+          state.recoveryStartedAt
+        )
+      );
+
+
+    $("recoveryDisplay").textContent =
+      `Récupération : ${fmt(left)}`;
+
+
+    clearTimeout(
+      recoveryTimer
+    );
+
+
+    if (left) {
+
+      recoveryTimer =
+        setTimeout(
+          updateRecovery,
+          500
+        );
+
+    }
+
+  }
+
+
+  /* =========================================================
+     EVENEMENTS
+  ========================================================= */
+
+  $("addRunnerBtn").onclick =
+    addRunner;
+
+
+  $("setupBackBtn").onclick = () => goSetupStep(
+    setupStep === "runners" ? (isExamMode() ? "cover" : "settings")
+      : setupStep === "settings" ? "tools" : "cover"
+  );
+  $("setupNextBtn").onclick = () => goSetupStep("runners");
+
+  $("launchPerformanceBtn").onclick = launch;
+
+
+  $("backSetupBtn").onclick =
+    () => {
+
+      if (running) {
+
+        return toast(
+          "Termine la course avant de revenir."
+        );
+
+      }
+
+
+      setupStep = isSimple() ? "settings" : "runners";
+      state.view =
+        "setup";
+
+
+      resetClock();
+
+      resetTimedRuntime();
+
+      save();
+
+      render();
+
+    };
+
+
+  $("startBtn").onclick =
+    start;
+
+
+  $("stopBtn").onclick =
+    stopAction;
+
+
+  $("lapBtn").onclick =
+    recordLap;
+
+
+  $("timerLapBtn").onclick =
+    addTimedLap;
+
+
+  $("undoTimerLapBtn").onclick =
+    undoTimedLap;
+
+
+  $("validatePartialDistanceBtn").onclick =
+    validateTimedResult;
+
+
+  $("resetBtn").onclick =
+    resetCurrent;
+
+  $("cancelResetBtn").onclick = cancelResetConfirmation;
+  document.addEventListener("pointerdown", event => {
+    if (!event.target.closest("#resetBtn")) cancelResetConfirmation();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") cancelResetConfirmation();
+  });
+  $("projectionTarget").onchange = () => {
+    state.projectionTarget = $("projectionTarget").value;
+    save();
+    renderProjection();
+  };
+  $("projectionCustomDistance").onchange = () => {
+    state.projectionCustomDistance = Math.min(10000, Math.max(50, Number($("projectionCustomDistance").value) || 1000));
+    save();
+    renderProjection();
+  };
+
+
+  $("newSessionBtn").onclick =
+    () => {
+
+      if (
+        !confirm(
+          "Nouvelle séance ?"
+        )
+      ) {
+
+        return;
+
+      }
+
+
+      state =
+        base();
+      sharedStudentWelcome = false;
+      setupStep = "cover";
+
+
+      resetClock();
+
+      resetTimedRuntime();
+
+      save();
+
+      render();
+
+    };
+
+
+  $("undoBtn").onclick =
+    () => {
+
+      if (
+        isTimed()
+      ) {
+
+        return undoTimedLap();
+
+      }
+
+
+      const r =
+        activeRunner();
+
+
+      const a =
+        r
+          ? rr(r.id)
+          : [];
+
+
+      if (
+        !a.length
+      ) {
+
+        return;
+
+      }
+
+
+      const id =
+        a.at(-1).id;
+
+
+      state.results =
+        state.results.filter(
+          x =>
+            x.id !== id
+        );
+
+
+      save();
+
+      renderPerf();
+
+    };
+
+
+  $("carnetBtn").onclick =
+    () => {
+
+      pendingSharedChronoCfg = null;
+      $("startSharedChronoBtn").style.display = "none";
+      $("startSharedChronoFromSheetBtn").style.display = "none";
+      prepareExportDialog();
+
+      $("carnetDialog").showModal();
+
+    };
+
+
+  $("openCarnetBtn").onclick =
+    openCarnet;
+
+
+  $("saveLaterBtn").onclick =
+    buildSheet;
+
+  $("downloadResultsBtn").onclick =
+    downloadResultsForCarnet;
+
+  $("shareResultsBtn").onclick =
+    shareResultsForCarnet;
+
+
+  $("closeSheetBtn").onclick =
+    () =>
+      $("sheetDialog").close();
+
+
+  $("shareSheetBtn").onclick =
+    async () => {
+
+      const r =
+        selectedExportRunner();
+
+
+      try {
+
+        await navigator
+          .share({
+
+            title:
+              "Chrono EPS",
+
+            text:
+              resultTextFor(r)
+
+          });
+
+      } catch {}
+
+    };
+
+
+  if ($("startRecoveryBtn")) $("startRecoveryBtn").onclick =
+    () => {
+
+      if (
+        state.mode !== "ccf"
+      ) {
+        return;
+      }
+
+      if (
+        !allDone(1)
+      ) {
+
+        return toast(
+          "Termine d’abord le premier 800 des deux coureurs."
+        );
+
+      }
+
+
+      state.recoveryStartedAt =
+        Date.now();
+
+
+      save();
+
+      updateRecovery();
+
+    };
+
+
+
+  document.querySelectorAll('[name="exam500LevelChoice"]').forEach(el => el.onchange = e => {
+    if (running || state.results.length) {
+      render();
+      toast("Niveau verrouillé après le début des courses.");
+      return;
+    }
+    state.exam500Level = e.target.value;
+    save(); render();
+  });
+  document.querySelectorAll('[name="exam500AnnouncementChoice"]').forEach(el => {
+    el.onchange = () => {
+      if (running || state.results.length) {
+        render(); return;
+      }
+      state.exam500EstimateC3 = el.value === "3";
+      state.exam500Regularity = state.exam500EstimateC3 ? "three" : "c1c2";
+      if (!state.exam500EstimateC3) state.runners.forEach(r => { r.project3Ms = null; });
+      save(); render();
+    };
+  });
+
+  if ($("exam500C3Toggle")) $("exam500C3Toggle").onchange = e => {
+    if (running || state.results.some(x => x.race >= 1)) {
+      e.target.checked = !!state.exam500EstimateC3;
+      toast("Impossible de changer le nombre d'annonces après le départ de C3.");
+      return;
+    }
+    state.exam500EstimateC3 = !!e.target.checked;
+    if (!state.exam500EstimateC3) {
+      state.runners.forEach(r => { r.project3Ms = null; });
+    }
+    save(); render();
+  };
+
+  if ($("exam500SupervisionToggle")) $("exam500SupervisionToggle").onchange = e => {
+    if (state.exam500Validations.length && !e.target.checked) {
+      e.target.checked=true;
+      toast("Mode surveille deja utilise : conserve pour cette evaluation.");
+      return;
+    }
+    state.exam500Supervised=e.target.checked;
+    save();render();
+  };
+  if ($("exam500ValidationOk")) $("exam500ValidationOk").onclick=()=>finishValidation500(false);
+  if ($("exam500ValidationNo")) $("exam500ValidationNo").onclick=()=>{
+    $("exam500CorrectionFields").classList.remove("hidden");
+    $("exam500CorrectionFields").style.display="block";
+    $("exam500TeacherTime").focus();
+  };
+  if ($("exam500ValidationConfirm")) $("exam500ValidationConfirm").onclick=()=>finishValidation500(true);
+  if ($("exam500ValidationDialog")) $("exam500ValidationDialog").addEventListener("cancel",e=>{
+    e.preventDefault();toast("Validation obligatoire : demande l'enseignant.");
+  });
+
+  /* Mode principal */
+
+  document
+    .querySelectorAll(
+      '[name="mode"]'
+    )
+    .forEach(
+      x => {
+
+        x.onclick =
+          () => {
+
+            if (!x.checked) {
+              return;
+            }
+
+
+            state.mode =
+              x.value;
+
+
+            if (
+              state.mode === "ccf"
+            ) {
+
+              state.totalDistance = 800;
+              state.splitDistance = 200;
+              state.displayMode = "cumulative";
+
+            } else if (
+              isExam500()
+            ) {
+
+              state.totalDistance = 500;
+              state.splitDistance = 250;
+              state.displayMode = "cumulative";
+
+            }
+
+
+            setupStep = isExamMode() ? "runners" : "tools";
+            save();
+
+            renderSetup();
+
+          };
+
+      }
+    );
+
+
+  /* Outil entraînement */
+
+  document
+    .querySelectorAll(
+      '[name="trainingTool"]'
+    )
+    .forEach(
+      x => {
+
+        x.onclick =
+          () => {
+
+            if (!x.checked) {
+              return;
+            }
+
+
+            state.trainingTool =
+              x.value;
+
+
+            resetClock();
+
+            resetTimedRuntime();
+
+            setupStep = "settings";
+            save();
+
+            renderSetup();
+
+          };
+
+      }
+    );
+
+
+  /* Chrono performance */
+
+  $("chronoPlanMode").onchange =
+    () => {
+
+      readConfig();
+
+      state.activeRace = 1;
+
+      save();
+
+      renderSetup();
+
+    };
+
+
+  $("chronoSeriesText").onchange =
+    () => {
+
+      readConfig();
+
+      if (
+        !state.chronoSeriesDistances
+          .length
+      ) {
+
+        return toast(
+          "Saisis au moins une distance."
+        );
+
+      }
+
+      state.activeRace = 1;
+
+      save();
+
+      renderSetup();
+
+    };
+
+
+  $("chronoSeriesWithSplits").onchange =
+    () => {
+
+      readConfig();
+
+      save();
+
+      renderSetup();
+
+    };
+
+
+  $("totalDistance").onchange =
+    () => {
+
+      if (
+        $("totalDistance").value === "custom"
+      ) {
+
+        setVisible(
+          "customDistanceWrap",
+          true
+        );
+
+        $("customDistance").value =
+          state.totalDistance;
+
+        $("customDistance").focus();
+
+        return;
+
+      }
+
+      readConfig();
+
+      save();
+
+      renderSetup();
+
+    };
+
+
+  $("splitDistance").onchange =
+    () => {
+
+      if (
+        $("splitDistance").value === "custom"
+      ) {
+
+        setVisible(
+          "customSplitWrap",
+          true
+        );
+
+        $("customSplit").value =
+          state.splitDistance;
+
+        $("customSplit").focus();
+
+        return;
+
+      }
+
+      readConfig();
+
+      save();
+
+      renderSetup();
+
+    };
+
+
+  [
+    "displayMode",
+    "targetTime",
+    "customDistance",
+    "customSplit"
+  ]
+  .forEach(
+    id => {
+
+      $(id).onchange =
+        () => {
+
+          readConfig();
+
+          save();
+
+          renderSetup();
+
+        };
+
+    }
+  );
+
+
+  /* Minuteur */
+
+  $("timerDuration").onchange =
+    () => {
+
+      state.timerDurationChoice =
+        $("timerDuration").value;
+
+
+      if (
+        state.timerDurationChoice !==
+        "custom"
+      ) {
+
+        state.timerDurationMs =
+          +state.timerDurationChoice *
+          1000;
+
+      }
+
+
+      save();
+
+      renderSetup();
+
+    };
+
+
+  $("customTimerDuration").onchange =
+    () => {
+
+      state.timerDurationChoice =
+        "custom";
+
+
+      state.timerDurationMs =
+        Math.max(
+          .5,
+          +$("customTimerDuration").value ||
+          6
+        ) *
+        60000;
+
+
+      save();
+
+      renderSetup();
+
+    };
+
+
+  $("trackDistance").onchange =
+    () => {
+
+      state.trackDistanceChoice =
+        $("trackDistance").value;
+
+
+      if (
+        state.trackDistanceChoice !==
+        "custom"
+      ) {
+
+        state.trackDistance =
+          +state.trackDistanceChoice;
+
+      }
+
+
+      save();
+
+      renderSetup();
+
+    };
+
+
+  $("customTrackDistance").onchange =
+    () => {
+
+      state.trackDistanceChoice =
+        "custom";
+
+
+      state.trackDistance =
+        Math.max(
+          10,
+          +$("customTrackDistance").value ||
+          300
+        );
+
+
+      save();
+
+      renderSetup();
+
+    };
+
+
+  /* VMA */
+
+  $("vmaProtocol").onchange =
+    () => {
+
+      state.vmaProtocol =
+        $("vmaProtocol").value;
+
+
+      if (
+        state.vmaProtocol === "6"
+      ) {
+
+        state.vmaDurationMs =
+          360000;
+
+      } else if (
+        state.vmaProtocol === "12"
+      ) {
+
+        state.vmaDurationMs =
+          720000;
+
+      }
+
+
+      save();
+
+      renderSetup();
+
+    };
+
+
+  $("vmaCustomDuration").onchange =
+    () => {
+
+      state.vmaProtocol =
+        "custom";
+
+
+      state.vmaDurationMs =
+        Math.max(
+          .5,
+          +$("vmaCustomDuration").value ||
+          6
+        ) *
+        60000;
+
+
+      save();
+
+      renderSetup();
+
+    };
+
+
+  $("vmaTrackDistance").onchange =
+    () => {
+
+      state.vmaTrackDistanceChoice =
+        $("vmaTrackDistance").value;
+
+
+      if (
+        state.vmaTrackDistanceChoice !==
+        "custom"
+      ) {
+
+        state.vmaTrackDistance =
+          +state.vmaTrackDistanceChoice;
+
+      }
+
+
+      save();
+
+      renderSetup();
+
+    };
+
+
+  $("vmaCustomTrackDistance").onchange =
+    () => {
+
+      state.vmaTrackDistanceChoice =
+        "custom";
+
+
+      state.vmaTrackDistance =
+        Math.max(
+          10,
+          +$("vmaCustomTrackDistance").value ||
+          300
+        );
+
+
+      save();
+
+      renderSetup();
+
+    };
+
+
+  /* Courses CCF */
+
+  document
+    .querySelectorAll(
+      "[data-race]"
+    )
+    .forEach(
+      x =>
+
+        x.onclick =
+          () =>
+            setRace(
+              +x.dataset.race
+            )
+
+    );
+
+
+  /* Réseau et mises à jour : ne jamais recharger la prise de performance. */
+
+  let swRegistration = null;
+  let updatePending = false;
+  let updateReloading = false;
+  let updateChecking = false;
+  let hadController = !!navigator.serviceWorker?.controller;
+
+  function renderNetworkStatus() {
+    $("offlineBadge").textContent = updatePending
+      ? "Mise à jour prête · retour aux paramètres"
+      : navigator.onLine ? "En ligne · v99" : "Hors ligne · v99";
+  }
+
+  function applyUpdateWhenSafe() {
+    if (!updatePending || updateReloading || !navigator.onLine || running ||
+        state.view === "performance" || document.visibilityState !== "visible" ||
+        (state.recoveryStartedAt && Date.now() - state.recoveryStartedAt < 720000) ||
+        document.querySelector("dialog[open]") ||
+        document.activeElement?.matches("input, select, textarea") ||
+        ["runnerLast", "runnerFirst", "runnerClass", "project1Min", "project1Sec",
+         "project2Min", "project2Sec"].some(id => $(id)?.value.trim())) return;
+    try {
+      save();
+      updateReloading = true;
+      window.location.reload();
+    } catch {
+      // Une sauvegarde impossible doit empêcher le rechargement.
+      updateReloading = false;
+    }
+  }
+
+  async function checkForUpdate() {
+    if (!swRegistration || !navigator.onLine || updateChecking) return;
+    updateChecking = true;
+    try {
+      await swRegistration.update();
+    } catch {
+      // Réseau indisponible : la version hors ligne reste utilisable.
+    } finally {
+      updateChecking = false;
+    }
+  }
+
+  window.addEventListener(
+    "online",
+    () => {
+      renderNetworkStatus();
+      checkForUpdate();
+      applyUpdateWhenSafe();
+    }
+  );
+
+
+  window.addEventListener(
+    "offline",
+    renderNetworkStatus
+  );
+
+
+  /* Service worker */
+
+  if (
+    "serviceWorker" in navigator
+  ) {
+
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (hadController) {
+        updatePending = true;
+        renderNetworkStatus();
+        applyUpdateWhenSafe();
+      }
+      hadController = true;
+    });
+
+    navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" })
+      .then(registration => {
+        swRegistration = registration;
+        checkForUpdate();
+      })
+      .catch(() => {
+        $("offlineBadge").textContent = "Hors ligne non disponible · v98";
+      });
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        checkForUpdate();
+        applyUpdateWhenSafe();
+      }
+    });
+    window.addEventListener("pageshow", () => {
+      checkForUpdate();
+      applyUpdateWhenSafe();
+    });
+    setInterval(checkForUpdate, 60000);
+    setInterval(applyUpdateWhenSafe, 2000);
+
+  }
+
+
+  /* Boucle chrono */
+
+  function tick() {
+
+    if (
+      state.view ===
+      "performance"
+    ) {
+
+      renderTimer();
+
+    }
+
+
+    requestAnimationFrame(
+      tick
+    );
+
+  }
+
+
+
+  /* QR de préparation : uniquement Chrono Performance. Aucun résultat n'est transféré. */
+  function encodeChronoShare(value) {
+    const bytes = new TextEncoder().encode(JSON.stringify(value));
+    let binary = "";
+    bytes.forEach(byte => { binary += String.fromCharCode(byte); });
+    return btoa(binary).split("+").join("-").split("/").join("_").replace(/=+$/, "");
+  }
+
+  function decodeChronoShare(value) {
+    if (!/^[A-Za-z0-9_-]{1,3000}$/.test(value)) throw new Error("Lien QR invalide");
+    const b64 = value.replace(/-/g, "+").replace(/_/g, "/");
+    const binary = atob(b64 + "=".repeat((4 - b64.length % 4) % 4));
+    return JSON.parse(new TextDecoder().decode(Uint8Array.from(binary, ch => ch.charCodeAt(0))));
+  }
+
+  function validateChronoShare(input) {
+    if (!input || typeof input !== "object" || Array.isArray(input) ||
+        input.v !== 1 || !["u", "s"].includes(input.p) ||
+        ![0, 1].includes(input.i) ||
+        !["lap", "cumulative", "both"].includes(input.m)) throw new Error("Paramètres QR incompatibles");
+    const integer = (n, min, max) => typeof n === "number" && Number.isInteger(n) && n >= min && n <= max;
+    if (!integer(input.s, 1, 10000)) throw new Error("Intermédiaire invalide");
+    if (input.p === "s") {
+      if (!Array.isArray(input.d) || input.d.length < 1 || input.d.length > 20 ||
+          !input.d.every(n => integer(n, 1, 10000))) throw new Error("Série invalide");
+      if (input.i && input.d.some(n => n % input.s !== 0 || input.s > n))
+        throw new Error("Intermédiaires incompatibles avec la série");
+    } else {
+      if (!integer(input.d, 1, 100000) ||
+          !integer(input.t, 0, 86400000)) throw new Error("Course invalide");
+      if (input.i && (input.s > input.d || input.d % input.s !== 0))
+        throw new Error("Intermédiaires incompatibles avec la distance");
+    }
+    return input;
+  }
+
+  function chronoShareConfig() {
+    const series = state.chronoPlanMode === "series";
+    return validateChronoShare({
+      v: 1, p: series ? "s" : "u",
+      d: series ? state.chronoSeriesDistances.slice() : state.totalDistance,
+      i: (series ? state.chronoSeriesWithSplits : state.chronoSingleWithSplits) ? 1 : 0,
+      s: state.splitDistance, m: state.displayMode,
+      ...(series ? {} : { t: state.targetMs || 0 })
+    });
+  }
+
+  function validateExam500Share(input) {
+    if (!input || input.v !== 2 || input.p !== "e" || !["seconde","premiere"].includes(input.l) || ![2,3].includes(input.a) || typeof input.s !== "boolean") throw new Error("Paramètres 3 × 500 incompatibles");
+    return input;
+  }
+
+
+  // Nouveau format pour les modes sans QR historique. Les QR v1 et v2 restent lisibles.
+  function validateOtherShare(input) {
+    if (!input || input.v !== 3 || input.p !== "g" ||
+        !["ccf", "training"].includes(input.mode)) throw new Error("Mode QR incompatible");
+    if (input.mode === "ccf") return {v:3,p:"g",mode:"ccf"};
+    if (!["simple","timer","vma"].includes(input.tool)) throw new Error("Outil QR incompatible");
+    const number = (value,min,max) => Number.isFinite(value) && value >= min && value <= max;
+    if (input.tool === "timer" &&
+        (!number(input.duration,1000,86400000) || !number(input.track,1,10000)))
+      throw new Error("Minuteur QR incompatible");
+    if (input.tool === "vma" &&
+        (!number(input.duration,1000,86400000) || !number(input.track,1,10000)))
+      throw new Error("VMA QR incompatible");
+    return input;
+  }
+
+  function sharedSessionDescription(cfg) {
+    if (cfg.p === "e") return {
+      title: "3 × 500 m",
+      subtitle: "Classe de " + (cfg.l === "seconde" ? "SECONDE" : "PREMIÈRE"),
+      facts: ["3 courses de 500 m", "Temps intermédiaire : 250 m", cfg.a + " annonces"],
+      instructions: [
+        "Au passage des 250 m : appuie.",
+        "À 500 m : appuie pour l’arrivée.",
+        cfg.a === 3 ? "Annonce ton temps avant chaque course." : "Annonce ton temps avant les courses 1 et 2.",
+        ...(cfg.a === 2 ? ["Course 3 : sans annonce."] : []),
+        ...(cfg.s ? ["Attends la validation du professeur."] : [])
+      ]
+    };
+    if (cfg.p === "g" && cfg.mode === "ccf") return {
+      title: "2 × 800 m", subtitle: "CCF · DEMI-FOND",
+      facts: ["2 courses de 800 m", "Temps intermédiaires : tous les 200 m"],
+      instructions: ["Appuie à 200 m, 400 m et 600 m.", "À 800 m : appuie pour l’arrivée.",
+        "Annonce ton temps avant chaque course.", "Respecte le temps de récupération."]
+    };
+    if (cfg.p === "g") return {
+      title: cfg.tool === "simple" ? "Chrono libre" : cfg.tool === "vma" ? "Test VMA" : "Minuteur / Tours",
+      subtitle: "ENTRAÎNEMENT",
+      facts: cfg.tool === "simple" ? ["Chronométrage libre"] : ["Durée : " + fmtClock(cfg.duration), "Piste : " + cfg.track + " m"],
+      instructions: [cfg.tool === "simple" ? "Démarre, puis arrête le chrono." :
+        "Appuie à chaque tour de " + cfg.track + " m.", ...(cfg.tool === "simple" ? [] : ["Arrête à la fin du temps prévu."])]
+    };
+    const series = cfg.p === "s";
+    return {
+      title: "Chrono performance", subtitle: "ENTRAÎNEMENT",
+      facts: [series ? "Série : " + cfg.d.join(" → ") + " m" : "Distance : " + cfg.d + " m",
+        cfg.i ? "Intermédiaires : tous les " + cfg.s + " m" : "Sans temps intermédiaire"],
+      instructions: [cfg.i ? "Appuie à chaque passage de " + cfg.s + " m." : "N’appuie pas pendant la course.",
+        "Appuie à l’arrivée.", ...(series ? ["Suis l’ordre des distances."] : [])]
+    };
+  }
+
+  function renderSharedStudentWelcome() {
+    let panel = $("sharedStudentWelcome");
+    if (!sharedStudentWelcome) {
+      if (panel) panel.classList.add("hidden");
+      return;
+    }
+    if (!panel) {
+      panel = document.createElement("section");
+      panel.id = "sharedStudentWelcome";
+      panel.className = "card";
+      $("setupPanel").before(panel);
+    }
+    panel.classList.remove("hidden");
+    const cfg = pendingSharedChronoCfg;
+    const info = sharedSessionDescription(cfg);
+    panel.innerHTML =
+      '<div style="max-width:1000px;margin:auto;padding:8px 0 20px">' +
+      '<div style="background:linear-gradient(120deg,#2563eb,#4f46e5);border-radius:22px;padding:24px;color:white;margin-bottom:18px">' +
+      '<p style="font-weight:850;letter-spacing:.1em;font-size:.9rem;margin:0 0 8px">🏁 SÉANCE DU JOUR</p>' +
+      '<h2 style="font-size:clamp(2rem,5vw,3.2rem);margin:0 0 8px;color:white">' + esc(info.title) + '</h2>' +
+      '<p style="font-size:1.15rem;font-weight:800;margin:0;color:#e0e7ff">' + esc(info.subtitle) + '</p></div>' +
+      '<div style="display:flex;gap:10px;flex-wrap:wrap;margin:16px 0 22px">' +
+      info.facts.map((fact,i) => '<span style="display:inline-block;background:' + (i===0?'#dcfce7':i===1?'#dbeafe':'#fef3c7') +
+        ';color:' + (i===0?'#166534':i===1?'#1e40af':'#92400e') +
+        ';padding:11px 16px;border-radius:13px;font-size:1rem;font-weight:850">' + esc(fact) + '</span>').join("") + '</div>' +
+      '<div style="background:#f0f7ff;border:1px solid #bfdbfe;border-radius:20px;padding:16px;margin:14px 0 20px">' +
+      '<h3 style="margin:0 0 14px;font-size:1.3rem">🎯 Les consignes</h3>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:8px">' +
+      info.instructions.map((x,i) => '<div style="display:flex;align-items:flex-start;gap:12px;background:white;border-radius:12px;padding:12px 14px;font-weight:750;line-height:1.35">' +
+        '<span style="background:#dbeafe;color:#1d4ed8;border-radius:50%;width:28px;height:28px;display:inline-flex;flex:none;align-items:center;justify-content:center">' + (i+1) + '</span>' +
+        '<span>' + esc(x) + '</span></div>').join("") + '</div></div>' +
+      '<h3 style="margin:16px 0 10px;font-size:1.35rem">🏃 Qui court aujourd’hui ?</h3>' +
+      '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:10px 0 16px">' +
+      '<label id="sharedCountLabel1" style="cursor:pointer;display:flex;align-items:center;gap:10px;padding:16px 12px;background:#f8fafc;border:2px solid #cbd5e1;border-radius:16px;font-weight:800"><input type="radio" name="sharedRunnerCount" value="1" style="width:20px;height:20px;flex:none"> 🏃 Solo + observateur</label>' +
+      '<label id="sharedCountLabel2" style="cursor:pointer;display:flex;align-items:center;gap:10px;padding:16px 12px;background:#eff6ff;border:2px solid #3b82f6;border-radius:16px;font-weight:800"><input type="radio" name="sharedRunnerCount" value="2" checked style="width:20px;height:20px;flex:none"> 🏃🏃 Duo</label></div>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:16px">' +
+      [1,2].map(i => '<div id="sharedRunnerCard' + i + '" style="background:' + (i===1?'#e6f7ec':'#e7f0ff') +
+        ';border:2px solid ' + (i===1?'#7bc99b':'#8bb4f5') + ';border-radius:18px;padding:18px">' +
+        '<h4 style="margin:0 0 12px;color:' + (i===1?'#166534':'#1d4ed8') + '">Coureur ' + i + '</h4>' +
+        '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px">' +
+        '<label class="field" style="min-width:0">Nom<input id="sharedLast' + i + '" autocomplete="off" placeholder="Nom" /></label>' +
+        '<label class="field" style="min-width:0">Prénom<input id="sharedFirst' + i + '" autocomplete="off" placeholder="Prénom" /></label>' +
+        '<label class="field" style="min-width:0">Classe<input id="sharedClass' + i + '" autocomplete="off" placeholder="Classe" /></label>' +
+        '<label class="field" style="min-width:0">Sexe<select id="sharedSex' + i + '"><option value="">Choisir</option><option value="F">Fille</option><option value="M">Garçon</option></select></label></div>' +
+        '</div>').join("") + '</div>' +
+      '<div id="sharedObserverCard" class="hidden" style="background:#f1f5f9;border:2px solid #cbd5e1;border-radius:18px;padding:18px;margin-top:16px">' +
+      '<h4 style="margin:0 0 10px">👀 Mon observateur <span style="font-size:.85rem;font-weight:500;color:#475569">(ne court pas)</span></h4>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:12px">' +
+      '<label class="field">Nom<input id="sharedObserverLast" autocomplete="off" placeholder="Nom" /></label>' +
+      '<label class="field">Prénom<input id="sharedObserverFirst" autocomplete="off" placeholder="Prénom" /></label></div></div>' +
+      '<button type="button" id="sharedStudentStart" class="btn primary full" style="font-size:1.2rem;min-height:64px;margin-top:24px">Commencer la séance →</button>' +
+      '<p id="sharedStudentError" role="alert" style="color:#b91c1c;font-weight:750"></p></div>';
+
+    const updateCount = () => {
+      const single = document.querySelector('input[name="sharedRunnerCount"]:checked')?.value === "1";
+      $("sharedRunnerCard2").classList.toggle("hidden", single);
+      $("sharedObserverCard").classList.toggle("hidden", !single);
+      [1,2].forEach(i => {
+        const active = single ? i === 1 : i === 2;
+        const label = $("sharedCountLabel" + i);
+        label.style.borderColor = active ? "#3b82f6" : "#cbd5e1";
+        label.style.background = active ? "#eff6ff" : "#f8fafc";
+      });
+    };
+    document.querySelectorAll('input[name="sharedRunnerCount"]').forEach(radio => {
+      radio.onchange = updateCount;
+    });
+    updateCount();
+
+    $("sharedStudentStart").onclick = () => {
+      const single = document.querySelector('input[name="sharedRunnerCount"]:checked')?.value === "1";
+      const entries = (single ? [1] : [1,2]).map(i => ({
+        last:$("sharedLast"+i).value.trim(),first:$("sharedFirst"+i).value.trim(),
+        classroom:$("sharedClass"+i).value.trim().toUpperCase(),sex:$("sharedSex"+i).value
+      }));
+      if (entries.some(r => !r.last || !r.first || !r.classroom || !r.sex)) {
+        $("sharedStudentError").textContent = "Complète le nom, le prénom, la classe et le sexe de chaque coureur.";
+        return;
+      }
+      const observer = single ? {
+        last:$("sharedObserverLast").value.trim(),first:$("sharedObserverFirst").value.trim()
+      } : null;
+      if (single && (!observer.last || !observer.first)) {
+        $("sharedStudentError").textContent = "Complète le nom et le prénom de l’observateur.";
+        return;
+      }
+      // L'observateur est une information de séance, jamais un coureur chronométré.
+      if (observer) state.observer = observer;
+      state.runners = entries.map((r,i) => ({
+        id:uid(),externalId:stableStudentId(r.last,r.first,r.classroom),
+        ...r,name:r.last.toUpperCase()+" "+r.first,
+        project1Ms:null,project2Ms:null,project3Ms:null,
+        tone:i?"blue":"green",lockedIdentity:isExamMode(),
+        stopped:false,stoppedReason:"",stoppedAt:null,stoppedRace:null,stoppedOnlyRaces:[]
+      }));
+      state.activeRunnerId = state.runners[0].id;
+      sharedStudentWelcome = false;
+      pendingSharedChronoCfg = null;
+      save();
+      renderSetup();
+      launch(); // Les annonces restent demandées avant chaque course concernée.
+    };
+  }
+
+  function launchSharedOther(cfg) {
+    if (running) return alert("Termine la course avant de changer de séance.");
+    state = base();
+    resetClock();
+    resetTimedRuntime();
+    state.mode = cfg.mode;
+    if (cfg.mode === "ccf") {
+      state.totalDistance = 800; state.splitDistance = 200; state.displayMode = "cumulative";
+    } else {
+      state.trainingTool = cfg.tool;
+      if (cfg.tool === "timer") {
+        state.timerDurationMs = cfg.duration;
+        state.timerDurationChoice = [180000,360000,540000,720000,900000,1200000].includes(cfg.duration) ? String(cfg.duration/1000) : "custom";
+        state.trackDistance = cfg.track;
+        state.trackDistanceChoice = [100,200,250,300,400].includes(cfg.track) ? String(cfg.track) : "custom";
+      } else if (cfg.tool === "vma") {
+        state.vmaDurationMs = cfg.duration;
+        state.vmaProtocol = cfg.duration === 360000 ? "6" : cfg.duration === 720000 ? "12" : "custom";
+        state.vmaTrackDistance = cfg.track;
+        state.vmaTrackDistanceChoice = [100,200,250,300,400].includes(cfg.track) ? String(cfg.track) : "custom";
+      }
+    }
+    state.view = "setup"; setupStep = "runners";
+    save(); render();
+  }
+
+  function beginSharedSession(cfg) {
+    pendingSharedChronoCfg = cfg;
+    if (cfg.p === "e") launchSharedExam500(cfg);
+    else if (cfg.p === "g") launchSharedOther(cfg);
+    else launchSharedChrono(cfg);
+    sharedStudentWelcome = true;
+    render();
+  }
+
+  function launchSharedExam500(cfg) {
+    if (running) { alert("Termine la course avant de charger une autre séance."); return; }
+    state = base();
+    resetClock();
+    resetTimedRuntime();
+    state.mode = "exam500";
+    state.exam500Level = cfg.l;
+    state.exam500EstimateC3 = cfg.a === 3;
+    state.exam500Regularity = cfg.a === 3 ? "three" : "c1c2";
+    state.exam500Supervised = cfg.s;
+    state.view = "setup";
+    setupStep = "runners";
+    save(); render();
+  }
+
+  function launchSharedChrono(cfg) {
+    if (running) {
+      alert("Le chronomètre tourne. Termine la course avant de changer de séance.");
+      return;
+    }
+    // Only this new session is cleared; existing results are never mixed into it.
+    state = base();
+    resetClock();
+    resetTimedRuntime();
+    state.mode = "training";
+    state.trainingTool = "chrono";
+    state.chronoPlanMode = cfg.p === "s" ? "series" : "single";
+    state.splitDistance = cfg.s;
+    state.displayMode = cfg.m;
+    if (cfg.p === "s") {
+      state.chronoSeriesDistances = cfg.d.slice();
+      state.chronoSeriesText = cfg.d.join(" ");
+      state.chronoSeriesWithSplits = cfg.i === 1;
+      state.targetMs = null;
+    } else {
+      state.totalDistance = cfg.d;
+      state.chronoSingleWithSplits = cfg.i === 1;
+      state.targetMs = cfg.t || null;
+    }
+    state.view = "setup";
+    setupStep = "runners";
+    save();
+    render();
+  }
+
+  function importSharedChrono() {
+    const raw = new URLSearchParams(location.search).get("c");
+    if (!raw) return;
+    try { history.replaceState(null, "", location.pathname + location.hash); } catch {}
+    let cfg;
+    try {
+      const decoded = decodeChronoShare(raw);
+      cfg = decoded && decoded.p === "e" ? validateExam500Share(decoded) : decoded && decoded.p === "g" ? validateOtherShare(decoded) : validateChronoShare(decoded);
+    }
+    catch (error) { alert("QR code de séance invalide ou incompatible. Aucun réglage modifié."); return; }
+
+    if (running) {
+      alert("Le chronomètre tourne. Termine la course avant de charger une nouvelle séance.");
+      return;
+    }
+
+    const hasResults = (state.results?.length || 0) > 0 ||
+      (state.timedRuns?.length || 0) > 0 || elapsedMs > 0;
+    const hasSession = hasResults || (state.runners?.length || 0) > 0;
+
+    if (hasResults) {
+      const saved = confirm(
+        "As-tu bien sauvegardé les résultats de ta séance précédente ?\n\n" +
+        "OK : oui, charger la nouvelle séance du professeur.\n" +
+        "Annuler : non, récupérer mes résultats avant de continuer."
+      );
+      if (saved) {
+        beginSharedSession(cfg);
+        return;
+      }
+      pendingSharedChronoCfg = cfg;
+      prepareExportDialog();
+      $("startSharedChronoBtn").style.display = "";
+      $("startSharedChronoFromSheetBtn").style.display = "";
+      $("carnetDialog").showModal();
+      return;
+    }
+
+    if (hasSession && !confirm("Une séance sans résultat est déjà préparée. La remplacer par celle du professeur ?")) return;
+    beginSharedSession(cfg);
+  }
+
+  $("startSharedChronoBtn").onclick = () => {
+    if (!pendingSharedChronoCfg) return;
+    const agree = confirm(
+      "As-tu bien récupéré les résultats de TOUS les coureurs dans le Carnet V2 ou enregistré leurs fichiers ?\n\n" +
+      "OK : lancer la nouvelle séance du professeur. Les anciens résultats seront remplacés sur cette tablette.\n" +
+      "Annuler : retourner à « Mes résultats »."
+    );
+    if (!agree) return;
+    const cfg = pendingSharedChronoCfg;
+    pendingSharedChronoCfg = null;
+    $("carnetDialog").close();
+    $("sheetDialog").close();
+    $("startSharedChronoBtn").style.display = "none";
+    $("startSharedChronoFromSheetBtn").style.display = "none";
+    (cfg.p === "e" ? launchSharedExam500 : launchSharedChrono)(cfg);
+  };
+
+  $("startSharedChronoFromSheetBtn").onclick = () => $("startSharedChronoBtn").click();
+
+  function showChronoShareQr() {
+    if (state.mode === "training") readConfig();
+    let cfg;
+    try { cfg = state.mode === "exam500"
+      ? validateExam500Share({v:2,p:"e",l:state.exam500Level,a:state.exam500EstimateC3?3:2,s:!!state.exam500Supervised})
+      : state.mode === "ccf" ? validateOtherShare({v:3,p:"g",mode:"ccf"})
+      : state.trainingTool === "chrono" ? chronoShareConfig()
+      : validateOtherShare({v:3,p:"g",mode:"training",tool:state.trainingTool,
+          duration:state.trainingTool === "vma" ? currentTimedDuration() : state.timerDurationMs,
+          track:state.trainingTool === "vma" ? state.vmaTrackDistance : state.trackDistance}); }
+    catch (error) { alert("Vérifie les distances et les intermédiaires : " + error.message); return; }
+    const url = new URL("./", location.href).href + "?c=" + encodeChronoShare(cfg);
+    let dialog = $("chronoShareDialog");
+    if (!dialog) {
+      dialog = document.createElement("dialog");
+      dialog.id = "chronoShareDialog";
+      dialog.innerHTML = '<div class="dialogPanel" style="text-align:center;max-width:min(95vw,650px);margin:auto">' +
+        '<h3>Partager la séance aux élèves</h3>' +
+        '<p id="chronoShareSummary"></p>' +
+        '<div id="chronoShareBox" style="display:flex;justify-content:center;margin:18px auto;background:white;padding:12px;width:max-content;max-width:90vw"></div>' +
+        '<p>Les élèves scannent avec l’appareil photo de leur iPad.</p>' +
+        '<button id="chronoShareFullscreen" type="button" class="btn soft full">⛶ Agrandir le QR code</button>' +
+        '<button id="chronoShareClose" type="button" class="btn soft full">Fermer</button></div>';
+      document.body.appendChild(dialog);
+      $("chronoShareClose").onclick = () => {
+        if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+        dialog.close();
+      };
+      $("chronoShareFullscreen").onclick = () => {
+        const panel = dialog.querySelector(".dialogPanel");
+        if (document.fullscreenElement) {
+          document.exitFullscreen?.().catch(() => {});
+        } else if (panel.requestFullscreen) {
+          panel.requestFullscreen().catch(() => {
+            dialog.style.width = "98vw"; dialog.style.maxWidth = "98vw";
+          });
+        } else {
+          dialog.style.width = "98vw"; dialog.style.maxWidth = "98vw";
+        }
+      };
+    }
+    $("chronoShareSummary").textContent =
+      sharedSessionDescription(cfg).title + " · " + sharedSessionDescription(cfg).subtitle;
+    const box = $("chronoShareBox");
+    box.replaceChildren();
+    if (!window.QRCode) {
+      box.textContent = "Générateur QR indisponible sur cet appareil.";
+      return dialog.showModal();
+    }
+    try {
+      new QRCode(box, { text: url, width: 320, height: 320, correctLevel: QRCode.CorrectLevel.M });
+    } catch (error) {
+      box.textContent = "QR impossible à générer. Réduis le nombre de distances.";
+    }
+    dialog.showModal();
+  }
+
+  $("shareChronoQrBtn").onclick = showChronoShareQr;
+  importSharedChrono();
+
+  render();
+
+  renderNetworkStatus();
+
+  tick();
+
+  updateRecovery();
+
+})();
+

@@ -1,0 +1,1879 @@
+<!doctype html>
+
+<html lang="fr">
+
+<head>
+
+  <meta charset="utf-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"
+  >
+
+  <meta
+    name="theme-color"
+    content="#0f172a"
+  >
+
+  <meta
+    name="apple-mobile-web-app-capable"
+    content="yes"
+  >
+
+  <link
+    rel="manifest"
+    href="./manifest.webmanifest"
+  >
+
+  <link
+    rel="stylesheet"
+    href="./css/app.css?v=4.4.3"
+  >
+
+  <link
+    rel="stylesheet"
+    href="./css/clarity.css?v=8"
+  >
+
+  <title>
+    Chrono Carnet EPS
+  </title>
+
+<style>#setupPanel[data-step="cover"] #exam500EvaluationConfig,#setupPanel[data-step="cover"] #exam500C3Config,#setupPanel[data-step="cover"] #exam500SupervisionConfig{display:none!important}</style>
+<style>#setupPanel:not(:has(input[name="mode"][value="exam500"]:checked)) #exam500EvaluationConfig{display:none!important}#setupPanel:has(input[name="mode"][value="exam500"]:checked):not([data-step="cover"]) #exam500EvaluationConfig{display:block!important}</style>
+<style>
+.exam500-choice{display:flex;align-items:center;gap:10px;padding:14px;border:2px solid #cbd5e1;border-radius:12px;background:#f8fafc;font-weight:700;cursor:pointer;min-height:54px;flex-wrap:wrap;transition:background .15s,border-color .15s}
+.exam500-choice:has(input:checked){background:#dbeafe;border-color:#2563eb;color:#1e40af;box-shadow:inset 0 0 0 1px #2563eb}
+.exam500-choice input{width:22px;height:22px;accent-color:#2563eb}
+.exam500-choice small{font-weight:500}
+</style></head>
+
+
+<body>
+
+
+<div class="app">
+
+
+  <header class="topbar">
+
+    <div>
+
+      <p class="eyebrow">
+        EPS · Chrono iPad
+      </p>
+
+      <h1>
+        Chrono Carnet
+      </h1>
+
+      <p class="subtitle">
+        Chrono, entraînement, minuteur, VMA ou CCF demi-fond.
+      </p>
+
+    </div>
+
+
+    <div class="topActions">
+
+      <span
+        id="offlineBadge"
+        class="offlineBadge"
+      >
+        Hors ligne prêt
+      </span>
+
+      <button
+        id="newSessionBtn"
+        class="btn ghost"
+      >
+        Nouvelle séance
+      </button>
+
+    </div>
+
+  </header>
+
+
+  <main>
+
+
+    <section
+      id="setupPanel"
+      class="card"
+    >
+
+      <div class="setupHeading"><p id="setupProgress" class="eyebrow">Bienvenue</p>
+      <h2 id="setupTitle" tabindex="-1">Chrono Carnet EPS</h2>
+      <p id="setupHint">Choisis ton mode pour préparer ta séance.</p></div>
+
+
+      <div id="setupModes" class="modeGrid twoModes">
+
+
+        <label class="modeCard">
+
+          <input
+            type="radio"
+            name="mode"
+            value="training"
+            checked
+          >
+
+          <span>
+
+            <strong>
+              Mode entraînement
+            </strong>
+
+            <small>
+              Chrono libre, performance, minuteur avec tours ou test VMA.
+            </small>
+
+          </span>
+
+        </label>
+
+
+        <label class="modeCard">
+
+          <input
+            type="radio"
+            name="mode"
+            value="ccf"
+          >
+
+          <span>
+
+            <strong>
+              CCF · 2 × 800 m
+            </strong>
+
+            <small>
+              2 × 800 m · récupération Carnet + QR professeur.
+            </small>
+
+          </span>
+
+        </label>
+
+        <label class="modeCard">
+
+          <input
+            type="radio"
+            name="mode"
+            value="exam500"
+          >
+
+          <span>
+
+            <strong>
+              Examen 3 × 500 m
+            </strong>
+
+            <small>
+              C1/C2 avec annonce · C3 performance · passages 250/500 · QR professeur.
+            </small>
+
+          </span>
+
+        </label>
+
+
+      </div>
+
+
+      <div
+        id="trainingConfig"
+        class="configArea"
+      >
+
+
+        <div
+          id="trainingToolSelector"
+          class="trainingToolSelector"
+        >
+
+          <h3 class="trainingToolTitle">
+            Quel outil veux-tu utiliser ?
+          </h3>
+
+
+          <div class="modeGrid trainingToolsGrid">
+
+
+            <label class="modeCard trainingToolCard">
+
+              <input
+                type="radio"
+                name="trainingTool"
+                value="simple"
+                checked
+              >
+
+              <span>
+
+                <strong>
+                  ⏱️ Chrono simple
+                </strong>
+
+                <small>
+                  Un chrono libre pour mesurer une durée sans paramétrage.
+                </small>
+
+              </span>
+
+            </label>
+
+
+            <label class="modeCard trainingToolCard">
+
+              <input
+                type="radio"
+                name="trainingTool"
+                value="chrono"
+              >
+
+              <span>
+
+                <strong>
+                  🏃 Chrono performance
+                </strong>
+
+                <small>
+                  Distance définie, intermédiaires, vitesse et résultats.
+                </small>
+
+              </span>
+
+            </label>
+
+
+            <label class="modeCard trainingToolCard">
+
+              <input
+                type="radio"
+                name="trainingTool"
+                value="timer"
+              >
+
+              <span>
+
+                <strong>
+                  ⏳ Minuteur / Tours
+                </strong>
+
+                <small>
+                  Course au temps avec comptage des tours et distance parcourue.
+                </small>
+
+              </span>
+
+            </label>
+
+
+            <label class="modeCard trainingToolCard">
+
+              <input
+                type="radio"
+                name="trainingTool"
+                value="vma"
+              >
+
+              <span>
+
+                <strong>
+                  ⚡ Test VMA
+                </strong>
+
+                <small>
+                  Demi-Cooper, Cooper ou test personnalisé avec estimation de la VMA.
+                </small>
+
+              </span>
+
+            </label>
+
+
+          </div>
+
+        </div>
+
+
+        <div
+          id="trainingSimpleConfig"
+          class="trainingSubConfig"
+        >
+
+          <div class="trainingInfoBox">
+
+            <strong>
+              ⏱️ Chrono simple
+            </strong>
+
+            <span>
+              Aucun coureur ni distance obligatoire. Démarre, arrête et réinitialise librement le chrono.
+            </span>
+
+          </div>
+
+        </div>
+
+
+        <div
+          id="trainingChronoConfig"
+          class="trainingSubConfig hidden"
+        >
+
+          <div class="trainingInfoBox">
+
+            <strong>
+              ⏱️ Chrono performance
+            </strong>
+
+            <span>
+              Course unique ou série / pyramide. Jusqu’à deux élèves, avec ou sans temps intermédiaires.
+            </span>
+
+          </div>
+
+          <div class="configGrid">
+
+            <label class="field">
+
+              <span>
+                Type de séance
+              </span>
+
+              <select id="chronoPlanMode">
+                <option value="single">Course unique</option>
+                <option value="series">Série / pyramide</option>
+              </select>
+
+            </label>
+
+            <label
+              id="chronoSeriesField"
+              class="field hidden"
+            >
+
+              <span>
+                Distances successives
+              </span>
+
+              <input
+                id="chronoSeriesText"
+                inputmode="numeric"
+                placeholder="Ex. 100 200 300 200 100"
+                value="100 200 300 200 100"
+              >
+
+              <small>
+                Sépare les distances par un espace, une virgule ou un tiret.
+              </small>
+
+            </label>
+
+            <label
+              id="chronoSeriesSplitToggleField"
+              class="field hidden"
+            >
+
+              <span>
+                Temps intermédiaires
+              </span>
+
+              <select id="chronoSeriesWithSplits">
+                <option value="no">Non · seulement le temps final</option>
+                <option value="yes">Oui · cliquer à chaque passage</option>
+              </select>
+
+            </label>
+
+
+            <label id="singleDistanceField" class="field">
+
+              <span>
+                Distance totale
+              </span>
+
+              <select id="totalDistance">
+
+                <option>100</option>
+                <option>200</option>
+                <option>400</option>
+                <option>500</option>
+                <option>600</option>
+                <option>800</option>
+
+                <option selected>
+                  1000
+                </option>
+
+                <option>1200</option>
+                <option>1500</option>
+                <option>2000</option>
+                <option>3000</option>
+
+                <option value="custom">
+                  Personnalisée
+                </option>
+
+              </select>
+
+            </label>
+
+
+            <label
+              id="customDistanceWrap"
+              class="field hidden"
+            >
+
+              <span>
+                Distance personnalisée
+              </span>
+
+              <input
+                id="customDistance"
+                inputmode="numeric"
+                type="number"
+                min="1"
+                value="1000"
+              >
+
+            </label>
+
+
+            <label id="splitDistanceField" class="field">
+
+              <span>
+                Intermédiaire tous les
+              </span>
+
+              <select id="splitDistance">
+
+                <option>50</option>
+
+                <option selected>
+                  100
+                </option>
+
+                <option>150</option>
+                <option>200</option>
+                <option>250</option>
+                <option>400</option>
+
+                <option value="custom">
+                  Personnalisé
+                </option>
+
+              </select>
+
+            </label>
+
+
+            <label
+              id="customSplitWrap"
+              class="field hidden"
+            >
+
+              <span>
+                Intermédiaire personnalisé
+              </span>
+
+              <input
+                id="customSplit"
+                inputmode="numeric"
+                type="number"
+                min="1"
+                value="100"
+              >
+
+            </label>
+
+
+            <label class="field">
+
+              <span>
+                Affichage
+              </span>
+
+              <select id="displayMode">
+
+                <option value="lap">
+                  Temps intermédiaire
+                </option>
+
+                <option value="cumulative">
+                  Temps cumulé
+                </option>
+
+                <option
+                  value="both"
+                  selected
+                >
+                  Les deux
+                </option>
+
+              </select>
+
+            </label>
+
+
+            <label id="targetTimeField" class="field">
+
+              <span>
+                Temps cible facultatif
+              </span>
+
+              <input
+                id="targetTime"
+                inputmode="numeric"
+                placeholder="Ex. 400 = 4:00"
+              >
+
+            </label>
+
+
+          </div>
+
+          
+
+        </div>
+
+
+        <div
+          id="trainingTimerConfig"
+          class="trainingSubConfig hidden"
+        >
+
+          <div class="trainingInfoBox">
+
+            <strong>
+              ⏳ Course au temps
+            </strong>
+
+            <span>
+              Choisis une durée et la longueur de la piste. Appuie sur +1 TOUR à chaque passage.
+            </span>
+
+          </div>
+
+
+          <div class="configGrid timerConfigGrid">
+
+
+            <label class="field">
+
+              <span>
+                Durée de course
+              </span>
+
+              <select id="timerDuration">
+
+                <option value="180">
+                  3 minutes
+                </option>
+
+                <option
+                  value="360"
+                  selected
+                >
+                  6 minutes
+                </option>
+
+                <option value="540">
+                  9 minutes
+                </option>
+
+                <option value="720">
+                  12 minutes
+                </option>
+
+                <option value="900">
+                  15 minutes
+                </option>
+
+                <option value="1200">
+                  20 minutes
+                </option>
+
+                <option value="custom">
+                  Personnalisée
+                </option>
+
+              </select>
+
+            </label>
+
+
+            <label
+              id="customTimerDurationWrap"
+              class="field hidden"
+            >
+
+              <span>
+                Durée personnalisée
+              </span>
+
+              <input
+                id="customTimerDuration"
+                type="number"
+                inputmode="decimal"
+                min="0.5"
+                max="120"
+                step="0.5"
+                value="6"
+                placeholder="Minutes"
+              >
+
+            </label>
+
+
+            <label class="field">
+
+              <span>
+                Longueur de la piste
+              </span>
+
+              <select id="trackDistance">
+
+                <option value="100">
+                  100 m
+                </option>
+
+                <option value="200">
+                  200 m
+                </option>
+
+                <option value="250">
+                  250 m
+                </option>
+
+                <option
+                  value="300"
+                  selected
+                >
+                  300 m
+                </option>
+
+                <option value="400">
+                  400 m
+                </option>
+
+                <option value="custom">
+                  Personnalisée
+                </option>
+
+              </select>
+
+            </label>
+
+
+            <label
+              id="customTrackDistanceWrap"
+              class="field hidden"
+            >
+
+              <span>
+                Longueur personnalisée
+              </span>
+
+              <input
+                id="customTrackDistance"
+                type="number"
+                inputmode="numeric"
+                min="10"
+                max="1000"
+                step="1"
+                value="300"
+                placeholder="Distance en mètres"
+              >
+
+            </label>
+
+
+          </div>
+
+
+          <div class="timerPreview">
+
+            <div>
+
+              <span>
+                Durée
+              </span>
+
+              <strong id="timerPreviewDuration">
+                6:00
+              </strong>
+
+            </div>
+
+
+            <div>
+
+              <span>
+                Piste
+              </span>
+
+              <strong id="timerPreviewTrack">
+                300 m
+              </strong>
+
+            </div>
+
+
+            <div>
+
+              <span>
+                Pendant la course
+              </span>
+
+              <strong>
+                +1 TOUR
+              </strong>
+
+            </div>
+
+          </div>
+
+        </div>
+
+
+        <div
+          id="trainingVmaConfig"
+          class="trainingSubConfig hidden"
+        >
+
+          <div class="trainingInfoBox vmaInfoBox">
+
+            <strong>
+              ⚡ Test VMA
+            </strong>
+
+            <span>
+              Choisis le protocole, la longueur de la piste et compte les tours. L'application calcule ensuite la vitesse moyenne et la VMA estimée.
+            </span>
+
+          </div>
+
+
+          <div class="configGrid vmaConfigGrid">
+
+
+            <label class="field">
+
+              <span>
+                Protocole
+              </span>
+
+              <select id="vmaProtocol">
+
+                <option
+                  value="6"
+                  selected
+                >
+                  Demi-Cooper · 6 minutes
+                </option>
+
+                <option value="12">
+                  Cooper · 12 minutes
+                </option>
+
+                <option value="custom">
+                  Durée personnalisée
+                </option>
+
+              </select>
+
+            </label>
+
+
+            <label
+              id="vmaCustomDurationWrap"
+              class="field hidden"
+            >
+
+              <span>
+                Durée personnalisée
+              </span>
+
+              <input
+                id="vmaCustomDuration"
+                type="number"
+                inputmode="decimal"
+                min="0.5"
+                max="60"
+                step="0.5"
+                value="6"
+                placeholder="Minutes"
+              >
+
+            </label>
+
+
+            <label class="field">
+
+              <span>
+                Longueur de la piste
+              </span>
+
+              <select id="vmaTrackDistance">
+
+                <option value="100">
+                  100 m
+                </option>
+
+                <option value="200">
+                  200 m
+                </option>
+
+                <option value="250">
+                  250 m
+                </option>
+
+                <option
+                  value="300"
+                  selected
+                >
+                  300 m
+                </option>
+
+                <option value="400">
+                  400 m
+                </option>
+
+                <option value="custom">
+                  Personnalisée
+                </option>
+
+              </select>
+
+            </label>
+
+
+            <label
+              id="vmaCustomTrackDistanceWrap"
+              class="field hidden"
+            >
+
+              <span>
+                Longueur personnalisée
+              </span>
+
+              <input
+                id="vmaCustomTrackDistance"
+                type="number"
+                inputmode="numeric"
+                min="10"
+                max="1000"
+                step="1"
+                value="300"
+                placeholder="Distance en mètres"
+              >
+
+            </label>
+
+
+          </div>
+
+
+          <div class="vmaExplanation">
+
+            <strong>
+              Protocoles disponibles
+            </strong>
+
+            <p>
+              <b>Demi-Cooper :</b> course maximale de 6 minutes.
+            </p>
+
+            <p>
+              <b>Cooper :</b> course maximale de 12 minutes.
+            </p>
+
+            <p>
+              À chaque tour, appuie sur +1 TOUR. À la fin du test, ajoute la distance parcourue après le dernier tour complet.
+            </p>
+
+            <p>
+              L'application affichera la distance totale, la vitesse moyenne et une estimation de la VMA.
+            </p>
+
+          </div>
+
+        </div>
+
+
+      </div>
+
+
+      <div
+        id="ccfConfig"
+        class="ccfInfo hidden"
+      >
+
+        <strong>
+          CCF demi-fond · AFL1 /12
+        </strong>
+
+        <span>
+          2 × 800 m · passages 200 / 400 / 600 / 800 m · un seul coureur actif · estimations obligatoires puis verrouillées.
+        </span>
+
+      </div>
+
+      <div id="exam500SupervisionConfig" class="hidden" style="margin:12px 0;padding:16px;border:3px solid #be123c;border-radius:14px;background:#fff1f2">
+        <label style="display:flex;align-items:center;gap:12px;font-weight:900">
+          <input id="exam500SupervisionToggle" type="checkbox" style="width:27px;height:27px">
+          🛡️ Mode examen surveillé · validation enseignant
+        </label>
+        <p style="margin:8px 0 0">Disponible en Seconde et Première. Chaque 500 m devra être validé par l'enseignant avant le QR final.</p>
+      </div>
+<div id="exam500EvaluationConfig" class="hidden" style="margin:12px 0;padding:16px;border:2px solid #2563eb;border-radius:14px">
+  <h3>Préparer mon évaluation · 3 × 500 m</h3>
+  <fieldset style="border:0;padding:0;margin:0">
+    <legend style="font-weight:800;margin-bottom:8px">Niveau de classe</legend>
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px">
+      <label class="exam500-choice"><input type="radio" name="exam500LevelChoice" value="seconde"> Seconde</label>
+      <label class="exam500-choice"><input type="radio" name="exam500LevelChoice" value="premiere"> Première</label>
+    </div>
+  </fieldset>
+  <fieldset style="border:0;padding:0;margin:14px 0 0">
+    <legend style="font-weight:800;margin-bottom:8px">Nombre d'annonces</legend>
+    <label class="exam500-choice">
+      <input type="radio" name="exam500AnnouncementChoice" value="2"> 2 annonces · C1 et C2 <small>— régularité sur 4 × 250 m</small>
+    </label>
+    <label class="exam500-choice">
+      <input type="radio" name="exam500AnnouncementChoice" value="3"> 3 annonces · C1, C2 et C3 <small>— régularité sur 6 × 250 m</small>
+    </label>
+  </fieldset>
+  <p style="font-size:13px;color:#475569">Le calcul de régularité et les paramètres transmis à DemiFond Scan sont automatiques.</p>
+</div>
+      <style>
+        body.supervised500 {box-shadow:inset 0 0 0 10px #be123c!important}
+        body.supervised500::before {content:"🛡️ MODE EXAMEN SURVEILLÉ · 3 × 500 m";position:fixed;top:0;left:0;right:0;z-index:9990;background:#9f1239;color:white;text-align:center;padding:10px;font-weight:900;font-size:15px;pointer-events:none}
+        #exam500SupervisionBanner {border:5px solid #be123c;background:#ffe4e6;color:#881337;padding:16px;border-radius:14px;font-weight:900;text-align:center;margin:10px 0}
+        #exam500ValidationDialog {border:5px solid #be123c;border-radius:16px;padding:22px;max-width:430px;width:calc(100% - 32px)}
+        #exam500ValidationDialog::backdrop {background:rgba(0,0,0,.75)}
+        #exam500ValidationDialog input,#exam500ValidationDialog select {width:100%;font-size:20px;padding:12px;margin:8px 0}
+        #exam500ValidationDialog button {margin:6px 0;min-height:50px}
+      </style>
+      <div
+        id="exam500Config"
+        class="ccfInfo hidden" style="display:none!important"
+      >
+
+        <strong>
+          Examen demi-fond · 3 × 500 m
+        </strong>
+
+        <span>
+          C1 et C2 avec annonce obligatoire · C3 sans annonce, à fond · passages 250 / 500 m · QR professeur final.
+        </span>
+
+      </div>
+
+
+      <div
+        id="configMessage"
+        class="configMessage"
+      ></div>
+
+
+      <div
+        id="configRecap"
+        class="configRecap"
+      ></div>
+
+
+      <div
+        id="runnerSetupBlock"
+        class="addRunnerBlock"
+      >
+
+        <h3>
+          Coureurs
+        </h3>
+
+
+        <div class="addRunner">
+
+
+          <input
+            id="runnerLast"
+            placeholder="Nom"
+          >
+
+
+          <input
+            id="runnerFirst"
+            placeholder="Prénom"
+          >
+
+
+          <input
+            id="runnerClass"
+            placeholder="Classe"
+          >
+
+
+          <input
+            id="runnerName"
+            type="hidden"
+          >
+
+
+          <select id="runnerSex">
+
+            <option value="F">
+              Fille
+            </option>
+
+            <option value="M">
+              Garçon
+            </option>
+
+          </select>
+
+
+          <div class="ccfRunnerField estimateBox hidden">
+
+            <span>
+              Estimation 800 n°1
+            </span>
+
+            <div class="estimateInputs">
+
+              <input
+                id="project1Min"
+                inputmode="numeric"
+                type="number"
+                min="0"
+                max="9"
+                placeholder="min"
+              >
+
+              <b>
+                min
+              </b>
+
+              <input
+                id="project1Sec"
+                inputmode="numeric"
+                type="number"
+                min="0"
+                max="59"
+                placeholder="sec"
+              >
+
+              <b>
+                s
+              </b>
+
+            </div>
+
+          </div>
+
+
+          <div class="ccfRunnerField estimateBox hidden">
+
+            <span>
+              Estimation 800 n°2
+            </span>
+
+            <div class="estimateInputs">
+
+              <input
+                id="project2Min"
+                inputmode="numeric"
+                type="number"
+                min="0"
+                max="9"
+                placeholder="min"
+              >
+
+              <b>
+                min
+              </b>
+
+              <input
+                id="project2Sec"
+                inputmode="numeric"
+                type="number"
+                min="0"
+                max="59"
+                placeholder="sec"
+              >
+
+              <b>
+                s
+              </b>
+
+            </div>
+
+          </div>
+
+
+          <button
+            id="addRunnerBtn"
+            class="btn primary"
+          >
+            Ajouter
+          </button>
+
+
+        </div>
+
+
+        <div
+          id="estimateError"
+          class="configMessage"
+        ></div>
+
+
+        <div
+          id="runnerSetupList"
+          class="runnerSetupList"
+        ></div>
+
+
+      </div>
+
+
+      <div class="setupNavigation">
+        <button id="setupBackBtn" type="button" class="btn soft">← Retour</button>
+        <button id="shareChronoQrBtn" type="button" class="btn qrShareAction hidden" aria-label="Afficher le QR code pour les élèves">
+          <span class="qrShareIcon" aria-hidden="true">▦</span>
+          <span>Afficher le QR code</span>
+        </button>
+        <button id="setupNextBtn" type="button" class="btn primary big">Continuer →</button>
+      </div>
+      <button
+        id="launchPerformanceBtn"
+        class="btn primary full big"
+      >
+        Passer à la prise de performance
+      </button>
+
+
+    </section>
+
+
+    <section
+      id="performancePanel"
+      class="hidden"
+    >
+
+
+      <div class="performanceTop">
+
+        <button
+          id="backSetupBtn"
+          class="btn ghost tiny"
+        >
+          ← Paramètres
+        </button>
+
+        <div
+          id="perfRecap"
+          class="perfRecap"
+        ></div>
+
+      </div>
+
+
+      <section class="timerCard">
+
+
+        <div class="timerTop">
+
+          <div>
+
+            <span
+              id="timerLabel"
+              class="label"
+            >
+              Chronomètre
+            </span>
+
+            <div
+              id="mainTime"
+              class="mainTime"
+            >
+              00:00.00
+            </div>
+
+          </div>
+
+
+          <div
+            id="statusPill"
+            class="statusPill idle"
+          >
+            Prêt
+          </div>
+
+
+        </div>
+
+
+        <div
+          id="activeRunnerBanner"
+          class="activeRunnerBanner"
+        ></div>
+
+
+        <div
+          id="timerRunInfo"
+          class="timerRunInfo hidden"
+        >
+
+          <div class="timerMetric">
+
+            <span>
+              Tours
+            </span>
+
+            <strong id="timerLapCount">
+              0
+            </strong>
+
+          </div>
+
+
+          <div class="timerMetric">
+
+            <span>
+              Distance
+            </span>
+
+            <strong id="timerDistanceCount">
+              0 m
+            </strong>
+
+          </div>
+
+
+          <div class="timerMetric">
+
+            <span>
+              Vitesse
+            </span>
+
+            <strong id="timerSpeedDisplay">
+              —
+            </strong>
+
+          </div>
+
+        </div>
+
+
+        <div class="roundActions">
+
+
+          <button
+            id="startBtn"
+            class="roundBtn start"
+          >
+            DÉPART
+          </button>
+
+
+          <button
+            id="stopBtn"
+            class="roundBtn stop hidden"
+          >
+            STOP
+          </button>
+
+
+          <button
+            id="lapBtn"
+            class="roundBtn lap"
+            disabled
+          >
+            TOUR
+          </button>
+
+
+          <button
+            id="timerLapBtn"
+            class="roundBtn lap timerLapButton hidden"
+            disabled
+          >
+            +1 TOUR
+          </button>
+
+
+          <button
+            id="resetBtn"
+            class="roundBtn reset"
+          >
+            RESET
+          </button>
+
+
+          <button
+            id="pauseBtn"
+            class="hidden"
+            disabled
+          >
+            PAUSE
+          </button>
+
+
+        </div>
+
+        <p id="startReminder" class="startReminder"></p>
+
+        <div id="resetConfirmMessage" class="resetConfirmMessage hidden" role="status" aria-live="polite">
+          <strong id="resetConfirmText"></strong>
+          <p id="resetConfirmHint"></p>
+          <button id="cancelResetBtn" type="button" class="btn soft">Annuler</button>
+        </div>
+
+
+        <button
+          id="undoTimerLapBtn"
+          class="btn ghost tiny timerUndoButton hidden"
+          disabled
+        >
+          ↶ Annuler le dernier tour
+        </button>
+
+
+      </section>
+
+
+      <div id="exam500SupervisionBanner" class="hidden">🛡️ MODE EXAMEN SURVEILLÉ — VALIDATION PROFESSEUR OBLIGATOIRE</div>
+      <div
+        id="raceTabs"
+        class="raceTabs hidden"
+      >
+
+        <button
+          data-race="1"
+          class="active"
+        >
+          800 m n°1
+        </button>
+
+
+        <button data-race="2">
+          800 m n°2
+        </button>
+
+        <button
+          data-race="3"
+          class="exam500Race hidden"
+        >
+          500 m n°3
+        </button>
+
+
+      </div>
+
+      <div
+        id="trainingSequenceTabs"
+        class="raceTabs hidden"
+      ></div>
+
+
+      <section
+        id="runnerPerformanceBlock"
+        class="card performanceCard"
+      >
+
+
+        <div class="sectionHead">
+
+          <div>
+
+            <h2>
+              2. Coureur actif
+            </h2>
+
+            <p id="performanceHelp">
+              Sélectionne le coureur, démarre puis touche TOUR à chaque passage.
+            </p>
+
+          </div>
+
+
+          <button
+            id="undoBtn"
+            class="btn tiny soft"
+          >
+            ↶ Annuler
+          </button>
+
+
+        </div>
+
+
+        <div
+          id="runnersGrid"
+          class="runnersGrid"
+        ></div>
+
+
+      </section>
+
+
+      <section
+        id="timerFinishPanel"
+        class="card timerFinishPanel hidden"
+      >
+
+        <div class="sectionHead">
+
+          <div>
+
+            <h2>
+              Distance finale
+            </h2>
+
+            <p>
+              Ajoute la distance parcourue après le dernier tour complet.
+            </p>
+
+          </div>
+
+        </div>
+
+
+        <div class="partialDistanceControls">
+
+          <label class="field">
+
+            <span>
+              Distance supplémentaire
+            </span>
+
+            <input
+              id="partialDistance"
+              type="number"
+              inputmode="numeric"
+              min="0"
+              step="1"
+              value="0"
+              placeholder="0"
+            >
+
+          </label>
+
+
+          <span class="partialDistanceUnit">
+            mètres
+          </span>
+
+
+          <button
+            id="validatePartialDistanceBtn"
+            class="btn primary"
+          >
+            Valider le résultat
+          </button>
+
+        </div>
+
+      </section>
+
+
+      <section
+        id="vmaResultPanel"
+        class="card vmaResultPanel hidden"
+      >
+
+        <div class="sectionHead">
+
+          <div>
+
+            <h2>
+              Résultat du test
+            </h2>
+
+            <p>
+              Bilan calculé à partir de la durée et de la distance parcourue.
+            </p>
+
+          </div>
+
+        </div>
+
+
+        <div class="vmaResultGrid">
+
+
+          <div class="vmaResultCard">
+
+            <span>
+              Distance totale
+            </span>
+
+            <strong id="vmaResultDistance">
+              —
+            </strong>
+
+          </div>
+
+
+          <div class="vmaResultCard">
+
+            <span>
+              Durée
+            </span>
+
+            <strong id="vmaResultDuration">
+              —
+            </strong>
+
+          </div>
+
+
+          <div class="vmaResultCard">
+
+            <span>
+              Vitesse moyenne
+            </span>
+
+            <strong id="vmaResultSpeed">
+              —
+            </strong>
+
+          </div>
+
+
+          <div class="vmaResultCard vmaMainResult">
+
+            <span>
+              VMA estimée
+            </span>
+
+            <strong id="vmaResultValue">
+              —
+            </strong>
+
+          </div>
+
+
+        </div>
+
+
+        <div
+          id="vmaTrainingSpeeds"
+          class="vmaTrainingSpeeds"
+        ></div>
+
+
+        <p class="vmaDisclaimer">
+          La VMA affichée est une estimation dépendant du protocole utilisé et de l'engagement pendant le test.
+        </p>
+
+      </section>
+
+
+      <section
+        id="resultsSection"
+        class="card resultsCard"
+      >
+
+
+        <div class="sectionHead">
+
+          <div>
+
+            <h2 id="resultsTitle">
+              Temps intermédiaires
+            </h2>
+
+            <p id="resultsHelp">
+              Passages, vitesses et écarts s’affichent au fur et à mesure.
+            </p>
+
+          </div>
+
+
+          <button
+            id="teacherRevealBtn"
+            class="btn tiny ghost hidden"
+          >
+            Afficher les points
+          </button>
+
+
+        </div>
+
+
+        <div
+          id="resultsEmpty"
+          class="empty"
+        >
+          Aucun intermédiaire enregistré.
+        </div>
+
+
+        <div class="tableWrap">
+
+          <table
+            id="resultsTable"
+            class="resultsTable hidden"
+          >
+
+            <thead>
+
+              <tr>
+
+                <th>Élève</th>
+                <th>Course</th>
+                <th>Passage</th>
+                <th>Tour</th>
+                <th>Cumul</th>
+                <th>Vitesse</th>
+                <th>Comparaison</th>
+
+              </tr>
+
+            </thead>
+
+
+            <tbody id="resultsBody"></tbody>
+
+          </table>
+
+        </div>
+
+
+        <div
+          id="statsGrid"
+          class="statsGrid"
+        ></div>
+
+
+        <div
+          id="ccfScores"
+          class="ccfScores hidden"
+        ></div>
+
+
+        <div id="teacherQrActions"></div>
+
+
+      </section>
+
+
+      <section id="projectionPanel" class="card projectionPanel hidden">
+        <div class="sectionHead">
+          <div><h2>Préparer mon évaluation</h2><p>Une estimation de chrono à partir du travail réalisé.</p></div>
+          <span class="projectionTag">Optionnel</span>
+        </div>
+        <div class="configGrid">
+          <label class="field"><span>Mon évaluation</span>
+            <select id="projectionTarget">
+              <option value="off">Sans projection</option>
+              <option value="800">2 × 800 m</option>
+              <option value="500">3 × 500 m</option>
+              <option value="custom">Autre distance</option>
+            </select>
+          </label>
+          <label id="projectionDistanceField" class="field hidden"><span>Distance d’une course (m)</span>
+            <input id="projectionCustomDistance" type="number" inputmode="numeric" min="50" max="10000" step="50" value="1000">
+          </label>
+        </div>
+        <div id="projectionResults" class="projectionResults" aria-live="polite"></div>
+      </section>
+
+      <section
+        id="exportSection"
+        class="card exportCard"
+      >
+
+        <div id="teacherQrExportActions"></div>
+
+        <button
+          id="carnetBtn"
+          class="btn carnet full"
+        >
+          Récupérer mes résultats
+        </button>
+
+      </section>
+
+
+    </section>
+
+
+  </main>
+
+
+</div>
+
+
+<dialog
+  id="carnetDialog"
+  class="choiceDialog"
+>
+
+  <form
+    method="dialog"
+    class="dialogPanel"
+  >
+
+    <h3>
+      Mes résultats
+    </h3>
+
+    <p>
+      Choisis selon la tablette que tu utilises.
+    </p>
+
+
+    <button
+      id="openCarnetBtn"
+      type="button"
+      class="choiceBtn"
+    >
+
+      <strong>
+        📱 J’ai ma tablette
+      </strong>
+
+      <span>
+        Copier mes résultats puis ouvrir mon Carnet
+      </span>
+
+    </button>
+
+
+    <button
+      id="saveLaterBtn"
+      type="button"
+      class="choiceBtn"
+    >
+
+      <strong>
+        📸 Je n’ai pas ma tablette
+      </strong>
+
+      <span>
+        Enregistrer un fichier à importer plus tard dans mon Carnet
+      </span>
+
+    </button>
+
+
+    <button
+      id="startSharedChronoBtn"
+      type="button"
+      class="btn primary full"
+      style="display:none"
+    >
+      Lancer la nouvelle séance
+    </button>
+
+    <button
+      value="cancel"
+      class="btn soft full"
+    >
+      Annuler
+    </button>
+
+
+  </form>
+
+</dialog>
+
+
+<dialog
+  id="sheetDialog"
+  class="sheetDialog"
+>
+
+  <div class="sheetPanel">
+
+
+    <div class="sheetToolbar" style="flex-wrap:wrap">
+
+      <button
+        id="closeSheetBtn"
+        class="btn ghost"
+      >
+        ← Retour
+      </button>
+
+
+      <button
+        id="shareSheetBtn"
+        class="btn soft"
+      >
+        Partager le texte
+      </button>
+
+      <button
+        id="shareResultsBtn"
+        class="btn primary"
+      >
+        Envoyer le fichier (.json)
+      </button>
+
+      <button
+        id="downloadResultsBtn"
+        class="btn primary"
+      >
+        Enregistrer pour mon Carnet (.json)
+      </button>
+
+      <button
+        id="startSharedChronoFromSheetBtn"
+        type="button"
+        class="btn primary"
+        style="display:none"
+      >
+        Lancer la nouvelle séance
+      </button>
+
+    </div>
+
+
+    <div
+      id="captureSheet"
+      class="captureSheet"
+    ></div>
+
+
+    <p class="captureHint">
+      Enregistre ou envoie le fichier de résultats. Dans le Carnet de l’élève, ouvre une séance puis touche « Importer » sous « Travail réalisé » pour choisir ce fichier .json. « Joindre » sert aux images. La fiche peut aussi être capturée en image.
+    </p>
+
+
+  </div>
+
+</dialog>
+
+
+<div
+  id="toast"
+  class="toast"
+  hidden
+></div>
+
+
+<script src="./js/qrcode.min.js?v=1"></script>
+
+<script src="./js/v44.js?v=2"></script>
+
+<script src="./js/ccf-input-guard.js?v=1"></script>
+
+<script src="./js/app.js?v=104"></script>
+<script src="./js/run-safety-ui.js?v=5"></script>
+
+
+<script src="../hub-home.js?v=1"></script>
+</body>
+
+</html>
+

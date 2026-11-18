@@ -7967,7 +7967,7 @@ return null;
           duration:state.trainingTool === "vma" ? currentTimedDuration() : state.timerDurationMs,
           track:state.trainingTool === "vma" ? state.vmaTrackDistance : state.trackDistance}); }
     catch (error) { alert("Vérifie les distances et les intermédiaires : " + error.message); return; }
-    const url = new URL("./", location.href).href + "?c=" + encodeChronoShare(cfg);
+    const url = new URL("./", location.href).href + "?c=" + encodeChronoShare(cfg) + (window.__hubRosterParam ? "&r=" + window.__hubRosterParam : "");
     let dialog = $("chronoShareDialog");
     if (!dialog) {
       dialog = document.createElement("dialog");

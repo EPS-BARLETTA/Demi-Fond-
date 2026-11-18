@@ -9,84 +9,116 @@
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./apple-touch-icon.png">
 <link rel="icon" href="./icon-192.png">
-<link rel="stylesheet" href="./hub.css?v=1">
+<link rel="stylesheet" href="./hub.css?v=2">
 <title>Demi-fond EPS</title>
 </head>
 <body>
 <main class="hub">
   <header class="hub-head">
-    <img src="./icon-192.png" alt="" width="56" height="56">
+    <img src="./icon-192.png" alt="" width="52" height="52">
     <div>
       <h1>Demi-fond EPS</h1>
-      <p>Tous les outils de la séance, au même endroit.</p>
+      <p>De la classe à la note, étape par étape.</p>
     </div>
   </header>
 
-  <section aria-labelledby="profTitle">
-    <h2 id="profTitle">Espace professeur</h2>
-    <div class="grid">
-      <a class="tile" href="./scan/" data-role="prof">
-        <span class="ico" aria-hidden="true">📷</span>
-        <span class="txt"><strong>Scan CCF</strong><small>Scanner les QR des élèves, groupes, résultats et évaluation CCF</small></span>
-      </a>
-      <a class="tile" href="./video/" data-role="prof">
-        <span class="ico" aria-hidden="true">🎥</span>
-        <span class="txt"><strong>PhotoFinish</strong><small>Filmer l’arrivée, chronométrer chaque élève, photo de chaque passage</small></span>
-      </a>
-      <a class="tile" href="./chrono/" data-role="prof">
-        <span class="ico" aria-hidden="true">⏱️</span>
-        <span class="txt"><strong>Chrono Carnet</strong><small>Chronométrer plusieurs coureurs, partager la séance aux élèves</small></span>
-      </a>
+  <!-- Séance en cours, ou bouton pour en lancer une -->
+  <section id="sessionZone" aria-live="polite"></section>
+
+  <section aria-labelledby="classesTitle">
+    <div class="sec-head">
+      <h2 id="classesTitle">Mes classes</h2>
+      <button type="button" class="link" id="addClassBtn">+ Ajouter une classe</button>
     </div>
+    <p class="hint">Crée ta classe une seule fois ici : elle est disponible partout (Scan CCF, PhotoFinish, fiches papier), et les élèves choisissent leur nom dans une liste sur Chrono Carnet.</p>
+    <div id="classList" class="chips"></div>
+    <div id="foundZone"></div>
   </section>
 
-  <section aria-labelledby="eleveTitle">
-    <h2 id="eleveTitle">Espace élève</h2>
-    <div class="grid">
-      <a class="tile eleve" href="./eleve/">
-        <span class="ico" aria-hidden="true">🏃</span>
-        <span class="txt"><strong>Ouvrir l’espace élève</strong><small>Chrono Carnet et accès au carnet de suivi</small></span>
-      </a>
-      <button class="tile eleve" type="button" id="qrBtn">
-        <span class="ico" aria-hidden="true">🔳</span>
-        <span class="txt"><strong>QR code pour les élèves</strong><small>À projeter : les élèves arrivent directement sur leur espace</small></span>
-      </button>
-    </div>
+  <section id="pastZone" aria-labelledby="pastTitle" hidden>
+    <h2 id="pastTitle">Séances précédentes</h2>
+    <div id="pastList" class="past"></div>
   </section>
 
-  <p class="foot">Les données restent enregistrées sur cet appareil, dans chaque outil.</p>
+  <details class="tools">
+    <summary>Accès direct aux outils</summary>
+    <div class="grid">
+      <a class="tile" href="./scan/"><span class="ico" aria-hidden="true">📷</span><span class="txt"><strong>Scan CCF</strong><small>Classes, séances, scan des QR, résultats et notes</small></span></a>
+      <a class="tile" href="./chrono/"><span class="ico" aria-hidden="true">⏱️</span><span class="txt"><strong>Chrono Carnet</strong><small>Chronométrer, partager la séance aux élèves</small></span></a>
+      <a class="tile" href="./docs/"><span class="ico" aria-hidden="true">📝</span><span class="txt"><strong>ScanDocument</strong><small>Fiches papier à bulles, lecture des photos, barèmes</small></span></a>
+      <a class="tile" href="./video/"><span class="ico" aria-hidden="true">🎥</span><span class="txt"><strong>PhotoFinish</strong><small>Filmer l’arrivée, photo de chaque passage</small></span></a>
+      <a class="tile eleve" href="./eleve/"><span class="ico" aria-hidden="true">🏃</span><span class="txt"><strong>Espace élève</strong><small>Chrono Carnet et carnet de suivi</small></span></a>
+      <button class="tile eleve" type="button" id="qrBtn"><span class="ico" aria-hidden="true">🔳</span><span class="txt"><strong>QR code de l’espace élève</strong><small>Pour ouvrir l’espace élève sur les iPad</small></span></button>
+    </div>
+  </details>
+
+  <p class="foot">Les données restent sur cet appareil. Pense à sauvegarder depuis chaque outil de temps en temps.</p>
 </main>
 
-<dialog id="qrDialog" class="qr-dialog">
+<!-- Nouvelle séance -->
+<dialog id="newDlg" class="sheet">
+  <form method="dialog" id="newForm">
+    <h3>Nouvelle séance</h3>
+    <fieldset>
+      <legend><span class="num">1</span> Quelle classe ?</legend>
+      <div id="nfClasses" class="choice"></div>
+    </fieldset>
+    <fieldset>
+      <legend><span class="num">2</span> Quelle épreuve ?</legend>
+      <div class="choice" id="nfTypes">
+        <label><input type="radio" name="type" value="training" required><span><strong>Entraînement</strong><small>Séries, tours, VMA, chrono libre</small></span></label>
+        <label><input type="radio" name="type" value="ccf"><span><strong>CCF 2 × 800 m</strong><small>Temps prévu, passages, note AFL</small></span></label>
+        <label><input type="radio" name="type" value="exam500"><span><strong>Examen 3 × 500 m</strong><small>Annonces, passages 250/500, note</small></span></label>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend><span class="num">3</span> Qui relève les temps ?</legend>
+      <div class="choice" id="nfMethods">
+        <label><input type="radio" name="method" value="chrono" required><span><strong>Les élèves, sur iPad</strong><small>Chrono Carnet → QR codes scannés par le prof</small></span></label>
+        <label><input type="radio" name="method" value="paper"><span><strong>Les élèves, sur fiche papier</strong><small>Fiches imprimées → photo → lecture automatique</small></span></label>
+        <label id="nfVideoOnly"><input type="radio" name="method" value="video"><span><strong>Moi, en filmant l’arrivée</strong><small>PhotoFinish : classement et temps (sans note)</small></span></label>
+      </div>
+      <label class="check" id="nfVideoOpt"><input type="checkbox" name="video"> Filmer aussi l’arrivée avec PhotoFinish pour vérifier les temps</label>
+    </fieldset>
+    <p class="err" id="nfErr" role="alert"></p>
+    <div class="actions">
+      <button type="button" class="ghost" id="nfCancel">Annuler</button>
+      <button type="submit" class="primary" id="nfGo">Commencer la séance</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Classe : ajout / modification -->
+<dialog id="classDlg" class="sheet">
+  <form method="dialog" id="classForm">
+    <h3 id="cdTitle">Ajouter une classe</h3>
+    <label class="field">Nom de la classe<input name="name" id="cdName" placeholder="Ex. 2nde A, Terminales lundi" autocomplete="off"></label>
+    <div class="import">
+      <label class="filebtn">📋 Importer la liste PRONOTE (CSV)<input type="file" id="cdFile" accept=".csv,.txt,text/csv,text/plain" hidden></label>
+      <span class="hint">ou colle la liste : une ligne par élève, « NOM Prénom » (F ou G à la fin si tu veux)</span>
+    </div>
+    <textarea id="cdText" rows="7" placeholder="MARTIN Léa F&#10;DURAND Tom G&#10;…"></textarea>
+    <p class="hint" id="cdPreview"></p>
+    <div id="cdStudents" class="students"></div>
+    <p class="err" id="cdErr" role="alert"></p>
+    <div class="actions">
+      <button type="button" class="danger" id="cdDelete" hidden>Supprimer</button>
+      <span class="grow"></span>
+      <button type="button" class="ghost" id="cdCancel">Annuler</button>
+      <button type="submit" class="primary">Enregistrer</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="qrDialog" class="sheet qr-dialog">
   <h3>Espace élève</h3>
   <div id="qrBox" class="qr-box"></div>
   <p id="qrUrl" class="qr-url"></p>
-  <button type="button" class="close" id="qrClose">Fermer</button>
+  <div class="actions"><button type="button" class="primary" id="qrClose">Fermer</button></div>
 </dialog>
 
 <script src="./chrono/js/qrcode.min.js?v=1"></script>
-<script>
-(function () {
-  try { localStorage.setItem("eps-hub-role", "prof"); } catch (e) {}
-  var dlg = document.getElementById("qrDialog");
-  var box = document.getElementById("qrBox");
-  var eleveUrl = new URL("./eleve/", location.href).href;
-  document.getElementById("qrBtn").addEventListener("click", function () {
-    box.innerHTML = "";
-    document.getElementById("qrUrl").textContent = eleveUrl;
-    var size = Math.min(window.innerWidth - 80, window.innerHeight - 220, 420);
-    if (window.QRCode) {
-      new QRCode(box, { text: eleveUrl, width: size, height: size, correctLevel: QRCode.CorrectLevel.M });
-    } else {
-      box.textContent = eleveUrl;
-    }
-    if (dlg.showModal) dlg.showModal(); else dlg.setAttribute("open", "");
-  });
-  document.getElementById("qrClose").addEventListener("click", function () { dlg.close ? dlg.close() : dlg.removeAttribute("open"); });
-  if ("serviceWorker" in navigator && location.protocol === "https:") {
-    navigator.serviceWorker.register("./sw.js", { scope: "./", updateViaCache: "none" }).catch(function () {});
-  }
-})();
-</script>
+<script src="./hub/hub-data.js?v=1"></script>
+<script src="./hub/hub-ui.js?v=1"></script>
 </body>
 </html>

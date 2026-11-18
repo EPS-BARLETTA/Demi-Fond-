@@ -151,6 +151,8 @@
   var ex = grp && s.scanExerciseId && grp.sessions.find(function (x) { return x.id === s.scanExerciseId; });
   // Résultats scannés dans un autre exercice de la classe (même jour) : on prend celui qui contient des élèves
   var exChoices = grp ? grp.sessions.filter(function (x) { return (x.students || []).length && (!s.date || x.lessonDate === s.date); }) : [];
+  if (!exChoices.length && grp) exChoices = grp.sessions.filter(function (x) { return (x.students || []).length; })
+    .sort(function (a, b) { return String(a.lessonDate || "").localeCompare(String(b.lessonDate || "")) || (a.createdAt || 0) - (b.createdAt || 0); });
   if ((!ex || !(ex.students || []).length) && exChoices.length) ex = exChoices[exChoices.length - 1];
   function scanStudent(e) {
     if (!ex) return null;

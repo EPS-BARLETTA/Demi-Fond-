@@ -1,5 +1,5 @@
 const VERSION =
-  "df-ccf-103";
+  "df-ccf-104";
 
 
 const FILES = [
@@ -17,6 +17,7 @@ const FILES = [
   "./qr-validation.js?v=6",
 
   "./storage-safety.js",
+  "./note-tone.js?v=1",
 
   "./evaluation-ccf.js",
 

@@ -1,6 +1,6 @@
 /* Service worker de l'accueil uniquement.
    Les trois outils (scan/, video/, chrono/) ont chacun le leur, à leur propre portée. */
-const CACHE = "eps-hub-v17";
+const CACHE = "eps-hub-v18";
 const FILES = [
   "./",
   "./index.html",
@@ -8,8 +8,8 @@ const FILES = [
   "./hub/hub-data.js?v=7",
   "./hub/prenoms.js?v=1",
   "./hub/trombi.js?v=1",
-  "./hub/archive.js?v=3",
-  "./hub/hub-ui.js?v=9",
+  "./hub/archive.js?v=4",
+  "./hub/hub-ui.js?v=10",
   "./hub-home.js?v=6",
   "./manifest.webmanifest",
   "./icon-192.png",

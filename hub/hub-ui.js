@@ -707,7 +707,8 @@
     window.EPSArchive.save(ending.id).then(function (r) {
       $("endSave").disabled = false;
       if (!r) return;
-      $("endSaved").textContent = "Enregistrée : " + r.name + " (" + r.parts.join(", ") + ").";
+      $("endSaved").textContent = "Enregistrée et vérifiée : " + r.name + " contient " + (r.parts.length ? r.parts.join(", ") : "la classe") + ".";
+      if (r.warn) $("endErr").textContent = r.warn;
       $("endSave").textContent = "Enregistrer à nouveau";
       var x = H.load().sessions.find(function (y) { return y.id === ending.id; });
       $("endFree").disabled = !!(x && x.freedAt) || /Rien de lourd/.test($("endWeight").textContent);
@@ -777,7 +778,11 @@
     $("reopenFile").onchange = function (e) {
       var f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return;
       window.EPSArchive.readFile(f).then(window.EPSArchive.restore).then(function (r) {
-        alert("Séance rouverte : " + r.klass + "\n" + r.parts.join("\n"));
+        var msg = "Séance rouverte : " + r.klass + "\n\n" + (r.parts.length ? r.parts.join("\n") : "La classe seulement.");
+        if (r.missing && r.missing.length) msg += "\n\nAttention, pas retrouvés dans l’appli : " + r.missing.join(", ") + ". Réessaie de rouvrir le fichier.";
+        else msg += "\n\nTout ce que contient le fichier est bien revenu dans l’appli.";
+        if (r.noScan) msg += "\n\nCe fichier ne contient pas les résultats des élèves (QR de fin) : il a été enregistré avant une correction de l’appli. Si Scan CCF les a encore sur cet iPad, le contrôle les retrouve. Sinon, dans le contrôle, « Importer des fichiers » et choisis la sauvegarde Scan CCF de la classe (DemiFond_….html).";
+        alert(msg);
         sel = null; location.hash = "#seance";
       }).catch(function (err) { alert(err.message); });
     };
